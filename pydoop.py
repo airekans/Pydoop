@@ -55,14 +55,15 @@ def main(argv=None):
         
         if pid == 0:
             child_job(args[0], opts)
+            sys.exit(0)
         
     for _i in xrange(worker_num):
         pid, exit_status = os.wait()
         print 'child %d exit' % (pid),
         if os.WIFEXITED(exit_status):
-            print ' normally'
+            print 'normally'
         else:
-            print ' imnormally'
+            print 'imnormally'
     
     print 'All children have been exited'
 
