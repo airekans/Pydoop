@@ -10,7 +10,7 @@ from optparse import OptionParser
 import importlib
 
 
-def child_main(job_file, func_name):
+def child_main(job_file, func_name, rpipe):
     if not job_file:
         print 'job file cannot be empty'
         return 1
@@ -33,7 +33,10 @@ def child_main(job_file, func_name):
         print 'cannot find function %s in module %s' % (func_name, mod_name)
         return 1
     
-    entry_func()
+    for line in rpipe:
+        entry_func(line)
+
+    rpipe.close()
     return 0
 
 def main(argv=None):
@@ -74,18 +77,22 @@ def main(argv=None):
     for _i in xrange(worker_num):
         if opts.func:
             try:
+                rfd, wfd = os.pipe()
                 pid = os.fork()
             except OSError, e:
                 print >> sys.stderr, e.strerror
                 break
             
             if pid == 0:
+                os.close(wfd)
+                rpipe = os.fdopen(rfd, 'r')
                 try:
-                    sys.exit(child_main(args[0], opts.func))
+                    sys.exit(child_main(args[0], opts.func, rpipe))
                 except:
                     sys.exit(1)
             else:
-                child_pids.append(pid)
+                os.close(rfd)
+                child_pids.append((pid, wfd))
         else:
             pass
         
