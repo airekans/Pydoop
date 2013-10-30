@@ -48,10 +48,7 @@ def main(argv=None):
         argv = sys.argv[1:]
     try:
         # setup option parser
-        parser = OptionParser(usage = "%prog [options] JOBFILE")
-        parser.add_option("-i", "--in", dest="infile", 
-                          help="set input path",
-                          metavar="FILE")
+        parser = OptionParser(usage = "%prog [options] JOBFILE INFILE")
         parser.add_option("-o", "--out", dest="outfile",
                           help="set output path", metavar="FILE")
         parser.add_option("-w", "--worker-num", dest="worker_num",
@@ -67,10 +64,12 @@ def main(argv=None):
 
     (opts, args) = parser.parse_args(argv)
     
-    if len(args) == 0:
-        parser.error('Please input JOBFILE')
+    if len(args) < 2:
+        parser.error('Please input JOBFILE and INFILE')
     
     worker_num = opts.worker_num
+    job_file = args[0]
+    in_file = args[1]
     
     # MAIN BODY #
     child_pids = []
@@ -87,14 +86,25 @@ def main(argv=None):
                 os.close(wfd)
                 rpipe = os.fdopen(rfd, 'r')
                 try:
-                    sys.exit(child_main(args[0], opts.func, rpipe))
+                    sys.exit(child_main(job_file, opts.func, rpipe))
                 except:
                     sys.exit(1)
             else:
                 os.close(rfd)
-                child_pids.append((pid, wfd))
+                wpipe = os.fdopen(wfd, 'w')
+                child_pids.append((pid, wpipe))
         else:
             pass
+    
+    with open(in_file) as infd:
+        child_i = 0
+        for line in infd:
+            _, wpipe = child_pids[child_i]
+            wpipe.write(line)
+            child_i = (child_i + 1) % len(child_pids)
+        
+        for _, wpipe in child_pids:
+            wpipe.close()
         
     for _ in child_pids:
         pid, exit_status = os.wait()
