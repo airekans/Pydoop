@@ -7,10 +7,34 @@ pydoop -- a simple concurrent job execution library
 import sys
 import os
 from optparse import OptionParser
+import importlib
 
-def child_job(job_file, opts):
-    print job_file
 
+def child_main(job_file, func_name):
+    if not job_file:
+        print 'job file cannot be empty'
+        return 1
+    
+    mod_name = os.path.basename(job_file).split('.')
+    mod_name = mod_name[0]
+
+    try:
+        mod = importlib.import_module(mod_name)
+    except ImportError:
+        print 'cannot import module', mod_name
+        return 1
+    
+    try:
+        entry_func = mod.__dict__.get(func_name)
+    except TypeError:
+        return 1
+    
+    if not entry_func:
+        print 'cannot find function %s in module %s' % (func_name, mod_name)
+        return 1
+    
+    entry_func()
+    return 0
 
 def main(argv=None):
     '''Command line options.'''
@@ -46,18 +70,26 @@ def main(argv=None):
     worker_num = opts.worker_num
     
     # MAIN BODY #
+    child_pids = []
     for _i in xrange(worker_num):
-        try:
-            pid = os.fork()
-        except OSError, e:
-            print >> sys.stderr, e.strerror
-            sys.exit(1)
+        if opts.func:
+            try:
+                pid = os.fork()
+            except OSError, e:
+                print >> sys.stderr, e.strerror
+                break
+            
+            if pid == 0:
+                try:
+                    sys.exit(child_main(args[0], opts.func))
+                except:
+                    sys.exit(1)
+            else:
+                child_pids.append(pid)
+        else:
+            pass
         
-        if pid == 0:
-            child_job(args[0], opts)
-            sys.exit(0)
-        
-    for _i in xrange(worker_num):
+    for _ in child_pids:
         pid, exit_status = os.wait()
         print 'child %d exit' % (pid),
         if os.WIFEXITED(exit_status):
