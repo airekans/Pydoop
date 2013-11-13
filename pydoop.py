@@ -49,11 +49,27 @@ class SelectLoop(EventLoop):
                 self.__wfd_cbs[wfd](wfd)
 
 class EpollLoop(EventLoop):
+    def __init__(self):
+        self.__epoll = select.epoll()
+        self.__ev_map = {EventLoop.EV_IN: select.EPOLLIN,
+                         EventLoop.EV_OUT: select.EPOLLOUT}
+        self.__fd_cbs = {}
+
     def add_event(self, fd, event, cb):
-        pass
+        fd_no = fd
+        if not isinstance(fd_no, int):
+            fd_no = fd_no.fileno()
+        
+        if fd_no not in self.__fd_cbs:
+            self.__fd_cbs[fd_no] = {}
+        self.__fd_cbs[fd_no][event] = cb
+        self.__epoll.register(fd_no, self.__ev_map[event])
     
     def dispatch(self):
-        pass
+        while True:
+            events = self.__epoll.poll()
+            for fileno, event in events:
+                self.__fd_cbs[fileno][event](fileno)
 
 
 def import_func(mod_file, func_name):
