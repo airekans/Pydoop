@@ -72,6 +72,7 @@ def main(argv=None):
     
     # MAIN BODY #
     # first try to import the specified function
+    assert opts.func
     if opts.func:
         child_entry_func = import_func(job_file, opts.func)
         if child_entry_func is None:
@@ -101,7 +102,8 @@ def main(argv=None):
         else:
             pass
     
-    with open(in_file) as infd:
+    infd = open(in_file)
+    try:
         child_doings = {}
         child_num = len(child_pids)
         for i, line in enumerate(infd):
@@ -113,6 +115,8 @@ def main(argv=None):
         
         for _, wpipe in child_pids:
             wpipe.close()
+    finally:
+        infd.close()
         
     for _ in child_pids:
         pid, exit_status = os.wait()
