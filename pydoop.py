@@ -7,10 +7,53 @@ pydoop -- a simple concurrent job execution library
 import sys
 import os
 from optparse import OptionParser
+import select
 try:
     from importlib import import_module as import_mod
 except:
     import_mod = __import__
+
+
+class EventLoop(object):
+    EV_IN, EV_OUT = 1, 2
+    
+    def add_event(self, fd, event, cb):
+        pass
+    
+    def dispatch(self):
+        pass
+
+class SelectLoop(EventLoop):
+    def __init__(self):
+        self.__rfds = []
+        self.__wfds = []
+        self.__rfd_cbs = {}
+        self.__wfd_cbs = {}
+    
+    def add_event(self, fd, event, cb):
+        if event == EventLoop.EV_IN:
+            self.__rfds.append(fd)
+            self.__rfd_cbs[fd] = cb
+        elif event == EventLoop.EV_OUT:
+            self.__wfds.append(fd)
+            self.__wfd_cbs[fd] = cb
+    
+    def dispatch(self):
+        rlist, wlist = self.__rfds, self.__wfds
+        while True:
+            rfds, wfds, _ = select.select(rlist, wlist, [])
+            for rfd in rfds:
+                self.__rfd_cbs[rfd](rfd)
+            
+            for wfd in wfds:
+                self.__wfd_cbs[wfd](wfd)
+
+class EpollLoop(EventLoop):
+    def add_event(self, fd, event, cb):
+        pass
+    
+    def dispatch(self):
+        pass
 
 
 def import_func(mod_file, func_name):
