@@ -7,7 +7,10 @@ pydoop -- a simple concurrent job execution library
 import sys
 import os
 from optparse import OptionParser
-import importlib
+try:
+    from importlib import import_module as import_mod
+except:
+    import_mod = __import__
 
 
 def import_func(mod_file, func_name):
@@ -15,7 +18,7 @@ def import_func(mod_file, func_name):
     mod_name = mod_name[0]
 
     try:
-        mod = importlib.import_module(mod_name)
+        mod = import_mod(mod_name)
     except ImportError:
         print 'cannot import module', mod_name
         return None
