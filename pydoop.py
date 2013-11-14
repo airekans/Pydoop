@@ -8,11 +8,19 @@ import sys
 import os
 from optparse import OptionParser
 import select
+import fcntl
 try:
     from importlib import import_module as import_mod
 except:
     import_mod = __import__
 
+
+def set_nonblocking(fd):
+    val = fcntl.fcntl(fd, fcntl.F_GETFL)
+    fcntl.fcntl(fd, fcntl.F_SETFL, val | os.O_NONBLOCK)
+
+class _StopDispatch(Exception):
+    pass
 
 class EventLoop(object):
     EV_IN, EV_OUT = 1, 2
@@ -22,6 +30,9 @@ class EventLoop(object):
     
     def dispatch(self):
         pass
+    
+    def stop_dispatch(self):
+        raise _StopDispatch()
 
 class SelectLoop(EventLoop):
     def __init__(self):
@@ -42,17 +53,22 @@ class SelectLoop(EventLoop):
         rlist, wlist = self.__rfds, self.__wfds
         while True:
             rfds, wfds, _ = select.select(rlist, wlist, [])
-            for rfd in rfds:
-                self.__rfd_cbs[rfd](rfd)
-            
-            for wfd in wfds:
-                self.__wfd_cbs[wfd](wfd)
+            try:
+                for rfd in rfds:
+                    self.__rfd_cbs[rfd](rfd, self)
+                    
+                for wfd in wfds:
+                    self.__wfd_cbs[wfd](wfd, self)
+            except _StopDispatch:
+                break
 
 class EpollLoop(EventLoop):
     def __init__(self):
         self.__epoll = select.epoll()
         self.__ev_map = {EventLoop.EV_IN: select.EPOLLIN,
                          EventLoop.EV_OUT: select.EPOLLOUT}
+        self.__rev_ev_map = {select.EPOLLIN: EventLoop.EV_IN,
+                             select.EPOLLOUT: EventLoop.EV_OUT}
         self.__fd_cbs = {}
 
     def add_event(self, fd, event, cb):
@@ -68,8 +84,12 @@ class EpollLoop(EventLoop):
     def dispatch(self):
         while True:
             events = self.__epoll.poll()
-            for fileno, event in events:
-                self.__fd_cbs[fileno][event](fileno)
+            try:
+                for fileno, ep_event in events:
+                    event = self.__rev_ev_map[ep_event]
+                    self.__fd_cbs[fileno][event](fileno, self)
+            except _StopDispatch:
+                break
 
 
 def import_func(mod_file, func_name):
