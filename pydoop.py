@@ -19,6 +19,7 @@ def set_nonblocking(fd):
     val = fcntl.fcntl(fd, fcntl.F_GETFL)
     fcntl.fcntl(fd, fcntl.F_SETFL, val | os.O_NONBLOCK)
 
+
 class _StopDispatch(Exception):
     pass
 
@@ -62,35 +63,40 @@ class SelectLoop(EventLoop):
             except _StopDispatch:
                 break
 
-class EpollLoop(EventLoop):
-    def __init__(self):
-        self.__epoll = select.epoll()
-        self.__ev_map = {EventLoop.EV_IN: select.EPOLLIN,
-                         EventLoop.EV_OUT: select.EPOLLOUT}
-        self.__rev_ev_map = {select.EPOLLIN: EventLoop.EV_IN,
-                             select.EPOLLOUT: EventLoop.EV_OUT}
-        self.__fd_cbs = {}
-
-    def add_event(self, fd, event, cb):
-        fd_no = fd
-        if not isinstance(fd_no, int):
-            fd_no = fd_no.fileno()
-        
-        if fd_no not in self.__fd_cbs:
-            self.__fd_cbs[fd_no] = {}
-        self.__fd_cbs[fd_no][event] = cb
-        self.__epoll.register(fd_no, self.__ev_map[event])
+if 'epoll' in select.__dict__:
+    class EpollLoop(EventLoop):
+        def __init__(self):
+            self.__epoll = select.epoll()
+            self.__ev_map = {EventLoop.EV_IN: select.EPOLLIN,
+                             EventLoop.EV_OUT: select.EPOLLOUT}
+            self.__rev_ev_map = {select.EPOLLIN: EventLoop.EV_IN,
+                                 select.EPOLLOUT: EventLoop.EV_OUT}
+            self.__fd_cbs = {}
     
-    def dispatch(self):
-        while True:
-            events = self.__epoll.poll()
-            try:
-                for fileno, ep_event in events:
-                    event = self.__rev_ev_map[ep_event]
-                    self.__fd_cbs[fileno][event](fileno, self)
-            except _StopDispatch:
-                break
-
+        def add_event(self, fd, event, cb):
+            fd_no = fd
+            if not isinstance(fd_no, int):
+                fd_no = fd_no.fileno()
+            
+            if fd_no not in self.__fd_cbs:
+                self.__fd_cbs[fd_no] = {}
+            self.__fd_cbs[fd_no][event] = cb
+            self.__epoll.register(fd_no, self.__ev_map[event])
+        
+        def dispatch(self):
+            while True:
+                events = self.__epoll.poll()
+                try:
+                    for fileno, ep_event in events:
+                        event = self.__rev_ev_map[ep_event]
+                        self.__fd_cbs[fileno][event](fileno, self)
+                except _StopDispatch:
+                    break
+    
+    _event_loop = EpollLoop()
+else:
+    _event_loop = SelectLoop()
+    
 
 def import_func(mod_file, func_name):
     mod_name = os.path.basename(mod_file).split('.')
@@ -161,22 +167,22 @@ def main(argv=None):
     for _i in xrange(worker_num):
         if opts.func:
             try:
-                rfd, wfd = os.pipe()
+                data_rfd, data_wfd = os.pipe()
                 pid = os.fork()
             except OSError, e:
                 print >> sys.stderr, e.strerror
                 break
             
             if pid == 0:
-                os.close(wfd)
-                rpipe = os.fdopen(rfd, 'r')
+                os.close(data_wfd)
+                rpipe = os.fdopen(data_rfd, 'r')
                 try:
                     sys.exit(child_main(child_entry_func, rpipe))
                 except:
                     sys.exit(1)
             else:
-                os.close(rfd)
-                wpipe = os.fdopen(wfd, 'w')
+                os.close(data_rfd)
+                wpipe = os.fdopen(data_wfd, 'w')
                 child_pids.append((pid, wpipe))
         else:
             pass
