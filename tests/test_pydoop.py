@@ -1,6 +1,7 @@
 import unittest
 import pydoop
 import os
+from functools import partial
 
 
 class Test(unittest.TestCase):
@@ -26,17 +27,26 @@ class Test(unittest.TestCase):
     def testEpollloopAddEvent(self):
         rfd, wfd = os.pipe()
         pydoop.set_nonblocking(rfd)
-        on_read = lambda fd, ev_loop: None
+        on_read = lambda fd, ev, ev_loop: None
         self.__epoll_loop.add_event(rfd, pydoop.EventLoop.EV_IN, on_read)
         #self.assertTrue(self.EpollLoop.add_event('fd', 'event', 'cb'))
 
+    def testEpollloopAddEventWithDifferentFds(self):
+        rfd, wfd = os.pipe()
+        pydoop.set_nonblocking(rfd)
+        on_read = lambda fd, ev, ev_loop: None
+        on_write = lambda fd, ev, ev_loop: None
+        self.__epoll_loop.add_event(rfd, pydoop.EventLoop.EV_IN, on_read)
+        self.assertRaises(IOError, partial(self.__epoll_loop.add_event,
+                                           rfd, pydoop.EventLoop.EV_OUT, on_write))
 
     def testEpollloopDispatchRead(self):
         rfd, wfd = os.pipe()
         pydoop.set_nonblocking(rfd)
         
         is_read_call = [False]
-        def on_read(fd, ev_loop):
+        def on_read(fd, event, ev_loop):
+            self.assertEqual(pydoop.EventLoop.EV_IN, event)
             is_read_call[0] = True
             res = os.read(fd, 1)
             self.assertEqual(' ', res)
@@ -56,7 +66,8 @@ class Test(unittest.TestCase):
         
         is_write_call = [False]
         expected = ' '
-        def on_write(fd, ev_loop):
+        def on_write(fd, event, ev_loop):
+            self.assertEqual(pydoop.EventLoop.EV_OUT, event)
             is_write_call[0] = True
             os.write(fd, expected)
             ev_loop.stop_dispatch()
@@ -86,7 +97,8 @@ class Test(unittest.TestCase):
         pydoop.set_nonblocking(rfd)
         
         is_read_call = [False]
-        def on_read(fd, ev_loop):
+        def on_read(fd, event, ev_loop):
+            self.assertEqual(pydoop.EventLoop.EV_IN, event)
             is_read_call[0] = True
             res = os.read(fd, 1)
             self.assertEqual(' ', res)
@@ -106,7 +118,8 @@ class Test(unittest.TestCase):
         
         is_write_call = [False]
         expected = ' '
-        def on_write(fd, ev_loop):
+        def on_write(fd, event, ev_loop):
+            self.assertEqual(pydoop.EventLoop.EV_OUT, event)
             is_write_call[0] = True
             os.write(fd, expected)
             ev_loop.stop_dispatch()

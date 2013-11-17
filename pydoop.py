@@ -26,11 +26,14 @@ class _StopDispatch(Exception):
 class EventLoop(object):
     EV_IN, EV_OUT = 1, 2
     
-    def add_event(self, fd, event, cb):
-        pass
+    def add_event(self, fd, events, cb):
+        raise NotImplementedError()
+    
+    def del_event(self, fd, event):
+        raise NotImplementedError()
     
     def dispatch(self):
-        pass
+        raise NotImplementedError()
     
     def stop_dispatch(self):
         raise _StopDispatch()
@@ -42,24 +45,35 @@ class SelectLoop(EventLoop):
         self.__rfd_cbs = {}
         self.__wfd_cbs = {}
     
-    def add_event(self, fd, event, cb):
-        if event == EventLoop.EV_IN:
+    def add_event(self, fd, events, cb):
+        if not isinstance(events, (list, set)):
+            events = [events]
+
+        if EventLoop.EV_IN in events:
             self.__rfds.append(fd)
             self.__rfd_cbs[fd] = cb
-        elif event == EventLoop.EV_OUT:
+        if EventLoop.EV_OUT in events:
             self.__wfds.append(fd)
             self.__wfd_cbs[fd] = cb
     
+    def del_event(self, fd, event):
+        try:
+            if event == EventLoop.EV_IN:
+                self.__rfds.remove(fd)
+            elif event == EventLoop.EV_OUT:
+                self.__wfds.remove(fd)
+        except ValueError:
+            pass
+    
     def dispatch(self):
-        rlist, wlist = self.__rfds, self.__wfds
         while True:
-            rfds, wfds, _ = select.select(rlist, wlist, [])
+            rfds, wfds, _ = select.select(self.__rfds, self.__wfds, [])
             try:
                 for rfd in rfds:
-                    self.__rfd_cbs[rfd](rfd, self)
+                    self.__rfd_cbs[rfd](rfd, EventLoop.EV_IN, self)
                     
                 for wfd in wfds:
-                    self.__wfd_cbs[wfd](wfd, self)
+                    self.__wfd_cbs[wfd](wfd, EventLoop.EV_OUT, self)
             except _StopDispatch:
                 break
 
@@ -72,16 +86,32 @@ if 'epoll' in select.__dict__:
             self.__rev_ev_map = {select.EPOLLIN: EventLoop.EV_IN,
                                  select.EPOLLOUT: EventLoop.EV_OUT}
             self.__fd_cbs = {}
-    
-        def add_event(self, fd, event, cb):
+        
+        def __get_fileno(self, fd):
             fd_no = fd
             if not isinstance(fd_no, int):
                 fd_no = fd_no.fileno()
+            return fd_no
+    
+        def add_event(self, fd, events, cb):
+            if not isinstance(events, (list, set)):
+                events = [events]
+
+            fd_no = self.__get_fileno(fd)
             
-            if fd_no not in self.__fd_cbs:
-                self.__fd_cbs[fd_no] = {}
-            self.__fd_cbs[fd_no][event] = cb
-            self.__epoll.register(fd_no, self.__ev_map[event])
+            ep_event = 0
+            for ev in events:
+                if ev in self.__ev_map:
+                    ep_event = ep_event | self.__ev_map[ev]
+            
+            self.__fd_cbs[fd_no] = (events, cb)
+            self.__epoll.register(fd_no, ep_event)
+        
+        def del_event(self, fd):
+            fd_no = self.__get_fileno(fd)
+            if fd_no in self.__fd_cbs:
+                del self.__fd_cbs[fd_no]
+            self.__epoll.unregister(fd_no)
         
         def dispatch(self):
             while True:
@@ -89,7 +119,7 @@ if 'epoll' in select.__dict__:
                 try:
                     for fileno, ep_event in events:
                         event = self.__rev_ev_map[ep_event]
-                        self.__fd_cbs[fileno][event](fileno, self)
+                        self.__fd_cbs[fileno][1](fileno, event, self)
                 except _StopDispatch:
                     break
     
@@ -97,6 +127,14 @@ if 'epoll' in select.__dict__:
 else:
     _event_loop = SelectLoop()
     
+
+def read_input_file(fd, buf, ev_loop):
+    buf.read(fd)
+    
+def write_child_pipe(fd, buf, rfd, ev_loop):
+    if not buf.has_line():
+        ev_loop.add_event(rfd, EventLoop.EV_IN, )
+
 
 def import_func(mod_file, func_name):
     mod_name = os.path.basename(mod_file).split('.')
@@ -182,12 +220,14 @@ def main(argv=None):
                     sys.exit(1)
             else:
                 os.close(data_rfd)
-                wpipe = os.fdopen(data_wfd, 'w')
-                child_pids.append((pid, wpipe))
+                set_nonblocking(data_wfd)
+                _event_loop.add_event(data_wfd, EventLoop.EV_OUT, cb)
+                child_pids.append((pid, data_wfd))
         else:
             pass
     
     infd = open(in_file)
+    set_nonblocking(infd)
     try:
         child_doings = {}
         child_num = len(child_pids)
