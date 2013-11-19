@@ -319,7 +319,7 @@ def main(argv=None):
                                    rfd=infd_no, fd_buf=FdBuffer())
                 _event_loop.add_event(data_wfd, EventLoop.EV_OUT, write_cb)
                 children_num += 1
-                child_pids.append((pid, data_wfd))
+                child_pids.append(pid)
         else:
             pass
     
