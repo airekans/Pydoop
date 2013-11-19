@@ -9,6 +9,8 @@ import os
 from optparse import OptionParser
 import select
 import fcntl
+from functools import partial
+import errno
 try:
     from importlib import import_module as import_mod
 except:
@@ -29,7 +31,7 @@ class EventLoop(object):
     def add_event(self, fd, events, cb):
         raise NotImplementedError()
     
-    def del_event(self, fd, event):
+    def del_event(self, fd):
         raise NotImplementedError()
     
     def dispatch(self):
@@ -49,19 +51,23 @@ class SelectLoop(EventLoop):
         if not isinstance(events, (list, set)):
             events = [events]
 
-        if EventLoop.EV_IN in events:
-            self.__rfds.append(fd)
-            self.__rfd_cbs[fd] = cb
-        if EventLoop.EV_OUT in events:
-            self.__wfds.append(fd)
-            self.__wfd_cbs[fd] = cb
+        if EventLoop.EV_IN in events and fd not in self.__rfd_cbs:
+                self.__rfds.append(fd)
+                self.__rfd_cbs[fd] = cb
+        if EventLoop.EV_OUT in events and fd not in self.__wfd_cbs:
+                self.__wfds.append(fd)
+                self.__wfd_cbs[fd] = cb
     
-    def del_event(self, fd, event):
+    def del_event(self, fd):
         try:
-            if event == EventLoop.EV_IN:
-                self.__rfds.remove(fd)
-            elif event == EventLoop.EV_OUT:
-                self.__wfds.remove(fd)
+            self.__rfds.remove(fd)
+            del self.__rfd_cbs[fd]
+        except ValueError:
+            pass
+
+        try:
+            self.__wfds.remove(fd)
+            del self.__wfd_cbs[fd]
         except ValueError:
             pass
     
@@ -98,6 +104,8 @@ if 'epoll' in select.__dict__:
                 events = [events]
 
             fd_no = self.__get_fileno(fd)
+            if fd_no in self.__fd_cbs:
+                return
             
             ep_event = 0
             for ev in events:
@@ -128,12 +136,88 @@ else:
     _event_loop = SelectLoop()
     
 
-def read_input_file(fd, buf, ev_loop):
-    buf.read(fd)
+class FdBuffer(object):
     
-def write_child_pipe(fd, buf, rfd, ev_loop):
-    if not buf.has_line():
-        ev_loop.add_event(rfd, EventLoop.EV_IN, )
+    def __init__(self):
+        self.__buffer = ""
+        self.__is_eof = False
+        
+    def read_from(self, fd):
+        while True:
+            tmp_buf = os.read(fd, 1024)
+            if len(tmp_buf) == 0:
+                self.__is_eof = True
+                return
+            
+            self.__buffer += tmp_buf
+            i = tmp_buf.find('\n')
+            if i >= 0:
+                return
+    
+    def eof(self):
+        return self.__is_eof
+    
+    def has_line(self):
+        return not self.empty() and (self.__is_eof or self.__buffer.find('\n') >= 0)
+    
+    def next_line(self):
+        i = self.__buffer.find('\n')
+        if self.__is_eof and i < 0:
+            line = self.__buffer
+            self.__buffer = ""
+            return line
+        else:
+            assert i >= 0
+            line = self.__buffer[:i + 1]
+            self.__buffer = self.__buffer[i + 1:]
+            return line
+    
+    def set_content(self, content):
+        self.__buffer = content
+    
+    def content(self):
+        return self.__buffer
+    
+    def skip(self, n):
+        self.__buffer = self.__buffer[n:]
+    
+    def empty(self):
+        return len(self.__buffer) == 0
+    
+    def len(self):
+        return len(self.__buffer)
+
+
+def read_input_file(fd, _, ev_loop, buf):
+    buf.read_from(fd)
+    if buf.eof():
+        os.close(fd)
+    
+finished_children_num = 0
+children_num = 0
+def write_child_pipe(fd, _, ev_loop, buf, rfd, fd_buf):
+    if fd_buf.empty():
+        if buf.has_line():
+            fd_buf.set_content(buf.next_line())
+        elif buf.eof():
+            print 'closing fd', fd
+            os.close(fd)
+            if finished_children_num == children_num:
+                ev_loop.stop_dispatch()
+        else:
+            buf.read_from(rfd)
+            fd_buf.set_content(buf.next_line())
+    
+    while fd_buf.len() > 0:
+        try:
+            expected_n = fd_buf.len()
+            n = os.write(fd, fd_buf.content())
+            fd_buf.skip(n)
+        except OSError, e:
+            if e.errno == errno.EPIPE: # child has closed the pipe
+                ev_loop.del_event(fd)
+            elif e.errno in [errno.EAGAIN, errno.EWOULDBLOCK]:
+                return
 
 
 def import_func(mod_file, func_name):
@@ -163,6 +247,8 @@ def child_main(entry_func, rpipe):
 
 def main(argv=None):
     '''Command line options.'''
+    
+    global children_num
     
     program_name = os.path.basename(sys.argv[0])
  
@@ -199,7 +285,15 @@ def main(argv=None):
     if opts.func:
         child_entry_func = import_func(job_file, opts.func)
         if child_entry_func is None:
-            parser.error('Cannot import function' + opts.func)
+            parser.error('Cannot import function ' + opts.func)
+
+    try:
+        infd = open(in_file)
+    except:
+        parser.error('Cannot open input file ' + in_file)
+    
+    infd_no = infd.fileno()
+    infd_buf = FdBuffer()
     
     child_pids = []
     for _i in xrange(worker_num):
@@ -219,29 +313,18 @@ def main(argv=None):
                 except:
                     sys.exit(1)
             else:
+                print 'pid', pid, 'wfd', data_wfd, type(data_wfd)
                 os.close(data_rfd)
                 set_nonblocking(data_wfd)
-                _event_loop.add_event(data_wfd, EventLoop.EV_OUT, cb)
+                write_cb = partial(write_child_pipe, buf=infd_buf,
+                                   rfd=infd_no, fd_buf=FdBuffer())
+                _event_loop.add_event(data_wfd, EventLoop.EV_OUT, write_cb)
+                children_num += 1
                 child_pids.append((pid, data_wfd))
         else:
             pass
     
-    infd = open(in_file)
-    set_nonblocking(infd)
-    try:
-        child_doings = {}
-        child_num = len(child_pids)
-        for i, line in enumerate(infd):
-            pid, wpipe = child_pids[i % child_num]
-            wpipe.write(str(i) + ' ' + line)
-            if pid not in child_doings:
-                child_doings[pid] = []
-            child_doings[pid].append(i)
-        
-        for _, wpipe in child_pids:
-            wpipe.close()
-    finally:
-        infd.close()
+    _event_loop.dispatch()
         
     for _ in child_pids:
         pid, exit_status = os.wait()

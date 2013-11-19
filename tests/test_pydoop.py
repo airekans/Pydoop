@@ -34,11 +34,14 @@ class Test(unittest.TestCase):
     def testEpollloopAddEventWithDifferentFds(self):
         rfd, wfd = os.pipe()
         pydoop.set_nonblocking(rfd)
+        pydoop.set_nonblocking(wfd)
         on_read = lambda fd, ev, ev_loop: None
         on_write = lambda fd, ev, ev_loop: None
         self.__epoll_loop.add_event(rfd, pydoop.EventLoop.EV_IN, on_read)
-        self.assertRaises(IOError, partial(self.__epoll_loop.add_event,
-                                           rfd, pydoop.EventLoop.EV_OUT, on_write))
+        try:
+            self.__epoll_loop.add_event(rfd, pydoop.EventLoop.EV_OUT, on_write)
+        except:
+            self.fail()
 
     def testEpollloopDispatchRead(self):
         rfd, wfd = os.pipe()
