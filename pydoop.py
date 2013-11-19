@@ -187,11 +187,6 @@ class FdBuffer(object):
     def len(self):
         return len(self.__buffer)
 
-
-def read_input_file(fd, _, ev_loop, buf):
-    buf.read_from(fd)
-    if buf.eof():
-        os.close(fd)
     
 finished_children_num = 0
 children_num = 0
