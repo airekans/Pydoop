@@ -211,7 +211,6 @@ def write_child_pipe(fd, _, ev_loop, buf, rfd, fd_buf):
     
     while fd_buf.len() > 0:
         try:
-            expected_n = fd_buf.len()
             n = os.write(fd, fd_buf.content())
             fd_buf.skip(n)
         except OSError, e:
