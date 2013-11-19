@@ -196,12 +196,13 @@ def read_input_file(fd, _, ev_loop, buf):
 finished_children_num = 0
 children_num = 0
 def write_child_pipe(fd, _, ev_loop, buf, rfd, fd_buf):
+    global finished_children_num
     if fd_buf.empty():
         if buf.has_line():
             fd_buf.set_content(buf.next_line())
         elif buf.eof():
-            print 'closing fd', fd
             os.close(fd)
+            finished_children_num += 1
             if finished_children_num == children_num:
                 ev_loop.stop_dispatch()
         else:
@@ -313,7 +314,6 @@ def main(argv=None):
                 except:
                     sys.exit(1)
             else:
-                print 'pid', pid, 'wfd', data_wfd, type(data_wfd)
                 os.close(data_rfd)
                 set_nonblocking(data_wfd)
                 write_cb = partial(write_child_pipe, buf=infd_buf,
