@@ -234,8 +234,10 @@ def import_func(mod_file, func_name):
 
 
 def child_main(entry_func, rpipe):
-    for line in rpipe:
+    line = rpipe.readline()
+    while line:
         entry_func(line)
+        line = rpipe.readline()
 
     rpipe.close()
     return 0
@@ -302,6 +304,9 @@ def main(argv=None):
             
             if pid == 0:
                 os.close(data_wfd)
+                for _, wfd in child_pids:
+                    os.close(wfd)
+                
                 rpipe = os.fdopen(data_rfd, 'r')
                 try:
                     sys.exit(child_main(child_entry_func, rpipe))
@@ -314,7 +319,7 @@ def main(argv=None):
                                    rfd=infd_no, fd_buf=FdBuffer())
                 _event_loop.add_event(data_wfd, EventLoop.EV_OUT, write_cb)
                 children_num += 1
-                child_pids.append(pid)
+                child_pids.append((pid, data_wfd))
         else:
             pass
     
