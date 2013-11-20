@@ -140,37 +140,6 @@ class FdBuffer(object):
     
     def __init__(self):
         self.__buffer = ""
-        self.__is_eof = False
-        
-    def read_from(self, fd):
-        while True:
-            tmp_buf = os.read(fd, 1024)
-            if len(tmp_buf) == 0:
-                self.__is_eof = True
-                return
-            
-            self.__buffer += tmp_buf
-            i = tmp_buf.find('\n')
-            if i >= 0:
-                return
-    
-    def eof(self):
-        return self.__is_eof
-    
-    def has_line(self):
-        return not self.empty() and (self.__is_eof or self.__buffer.find('\n') >= 0)
-    
-    def next_line(self):
-        i = self.__buffer.find('\n')
-        if self.__is_eof and i < 0:
-            line = self.__buffer
-            self.__buffer = ""
-            return line
-        else:
-            assert i >= 0
-            line = self.__buffer[:i + 1]
-            self.__buffer = self.__buffer[i + 1:]
-            return line
     
     def set_content(self, content):
         self.__buffer = content
@@ -190,20 +159,18 @@ class FdBuffer(object):
     
 finished_children_num = 0
 children_num = 0
-def write_child_pipe(fd, _, ev_loop, buf, rfd, fd_buf):
+def write_child_pipe(fd, _, ev_loop, rfd, fd_buf):
     global finished_children_num
     if fd_buf.empty():
-        if buf.has_line():
-            fd_buf.set_content(buf.next_line())
-        elif buf.eof():
+        line = rfd.readline()
+        if line:
+            fd_buf.set_content(line)
+        else:
             os.close(fd)
             finished_children_num += 1
             if finished_children_num == children_num:
                 ev_loop.stop_dispatch()
-        else:
-            buf.read_from(rfd)
-            fd_buf.set_content(buf.next_line())
-    
+            
     while fd_buf.len() > 0:
         try:
             n = os.write(fd, fd_buf.content())
@@ -289,9 +256,6 @@ def main(argv=None):
     except:
         parser.error('Cannot open input file ' + in_file)
     
-    infd_no = infd.fileno()
-    infd_buf = FdBuffer()
-    
     child_pids = []
     for _i in xrange(worker_num):
         if opts.func:
@@ -315,8 +279,7 @@ def main(argv=None):
             else:
                 os.close(data_rfd)
                 set_nonblocking(data_wfd)
-                write_cb = partial(write_child_pipe, buf=infd_buf,
-                                   rfd=infd_no, fd_buf=FdBuffer())
+                write_cb = partial(write_child_pipe, rfd=infd, fd_buf=FdBuffer())
                 _event_loop.add_event(data_wfd, EventLoop.EV_OUT, write_cb)
                 children_num += 1
                 child_pids.append((pid, data_wfd))
