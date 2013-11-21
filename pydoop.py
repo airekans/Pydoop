@@ -153,9 +153,6 @@ class FdBuffer(object):
     def empty(self):
         return len(self.__buffer) == 0
     
-    def len(self):
-        return len(self.__buffer)
-
     
 finished_children_num = 0
 children_num = 0
@@ -171,7 +168,7 @@ def write_child_pipe(fd, _, ev_loop, rfd, fd_buf):
             if finished_children_num == children_num:
                 ev_loop.stop_dispatch()
             
-    while fd_buf.len() > 0:
+    while not fd_buf.empty():
         try:
             n = os.write(fd, fd_buf.content())
             fd_buf.skip(n)
@@ -258,33 +255,30 @@ def main(argv=None):
     
     child_pids = []
     for _i in xrange(worker_num):
-        if opts.func:
-            try:
-                data_rfd, data_wfd = os.pipe()
-                pid = os.fork()
-            except OSError, e:
-                print >> sys.stderr, e.strerror
-                break
+        try:
+            data_rfd, data_wfd = os.pipe()
+            pid = os.fork()
+        except OSError, e:
+            print >> sys.stderr, e.strerror
+            break
+        
+        if pid == 0:
+            os.close(data_wfd)
+            for _, wfd in child_pids:
+                os.close(wfd)
             
-            if pid == 0:
-                os.close(data_wfd)
-                for _, wfd in child_pids:
-                    os.close(wfd)
-                
-                rpipe = os.fdopen(data_rfd, 'r')
-                try:
-                    sys.exit(child_main(child_entry_func, rpipe))
-                except:
-                    sys.exit(1)
-            else:
-                os.close(data_rfd)
-                set_nonblocking(data_wfd)
-                write_cb = partial(write_child_pipe, rfd=infd, fd_buf=FdBuffer())
-                _event_loop.add_event(data_wfd, EventLoop.EV_OUT, write_cb)
-                children_num += 1
-                child_pids.append((pid, data_wfd))
+            rpipe = os.fdopen(data_rfd, 'r')
+            try:
+                sys.exit(child_main(child_entry_func, rpipe))
+            except:
+                sys.exit(1)
         else:
-            pass
+            os.close(data_rfd)
+            set_nonblocking(data_wfd)
+            write_cb = partial(write_child_pipe, rfd=infd, fd_buf=FdBuffer())
+            _event_loop.add_event(data_wfd, EventLoop.EV_OUT, write_cb)
+            children_num += 1
+            child_pids.append((pid, data_wfd))
     
     _event_loop.dispatch()
         
