@@ -21,6 +21,23 @@ def set_nonblocking(fd):
     val = fcntl.fcntl(fd, fcntl.F_GETFL)
     fcntl.fcntl(fd, fcntl.F_SETFL, val | os.O_NONBLOCK)
 
+def import_func(mod_file, func_name):
+    mod_name = os.path.basename(mod_file).split('.')
+    mod_name = mod_name[0]
+
+    try:
+        mod = import_mod(mod_name)
+    except ImportError:
+        print 'cannot import module', mod_name
+        return None
+    
+    try:
+        entry_func = mod.__dict__.get(func_name)
+    except TypeError:
+        return None
+    
+    return entry_func
+
 
 class _StopDispatch(Exception):
     pass
@@ -199,23 +216,18 @@ def write_child_pipe(fd, _, ev_loop, rfd, fd_buf):
             elif e.errno in [errno.EAGAIN, errno.EWOULDBLOCK]:
                 return
 
-
-def import_func(mod_file, func_name):
-    mod_name = os.path.basename(mod_file).split('.')
-    mod_name = mod_name[0]
-
+def read_life_signal(fd, _, ev_loop):
     try:
-        mod = import_mod(mod_name)
-    except ImportError:
-        print 'cannot import module', mod_name
-        return None
-    
-    try:
-        entry_func = mod.__dict__.get(func_name)
-    except TypeError:
-        return None
-    
-    return entry_func
+        res = os.read(fd, 1)
+    except:
+        pass
+
+    pid, exit_status = os.wait()
+    print 'child %d exit' % (pid),
+    if os.WIFEXITED(exit_status):
+        print 'normally'
+    else:
+        print 'imnormally'
 
 def close_all_fds(fds):
     for fd in fds:
@@ -285,6 +297,7 @@ def main(argv=None):
     for _i in xrange(worker_num):
         try:
             data_rfd, data_wfd = os.pipe()
+            life_rfd, life_wfd = os.pipe()
             pid = os.fork()
         except OSError, e:
             print >> sys.stderr, e.strerror
@@ -292,8 +305,10 @@ def main(argv=None):
         
         if pid == 0:
             os.close(data_wfd)
-            for _, wfd in child_pids:
-                os.close(wfd)
+            os.close(life_rfd)
+            for _, fds in child_pids:
+                for fd in fds:
+                    os.close(fd)
             
             rpipe = os.fdopen(data_rfd, 'r')
             try:
@@ -302,13 +317,16 @@ def main(argv=None):
                 sys.exit(1)
         else:
             os.close(data_rfd)
+            os.close(life_wfd)
             set_nonblocking(data_wfd)
+            set_nonblocking(life_rfd)
             write_cb = partial(write_child_pipe, rfd=infd, fd_buf=FdBuffer())
             _event_loop.add_event(data_wfd, EventLoop.EV_OUT, write_cb)
             children_num += 1
-            child_pids.append((pid, data_wfd))
+            child_pids.append((pid, (data_wfd, life_rfd)))
     
-    _event_loop.set_on_exit_cb(partial(close_all_fds, [fd for _, fd in child_pids]))
+    _event_loop.set_on_exit_cb(partial(close_all_fds, 
+                                       [fds[0] for _, fds in child_pids]))
     try:
         _event_loop.dispatch()
     except KeyboardInterrupt:
