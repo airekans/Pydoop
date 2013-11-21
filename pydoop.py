@@ -28,6 +28,9 @@ class _StopDispatch(Exception):
 class EventLoop(object):
     EV_IN, EV_OUT = 1, 2
     
+    def __init__(self):
+        self.__on_exit = None
+    
     def add_event(self, fd, events, cb):
         raise NotImplementedError()
     
@@ -35,13 +38,25 @@ class EventLoop(object):
         raise NotImplementedError()
     
     def dispatch(self):
+        try:
+            self._do_dispatch()
+        finally:
+            if self.__on_exit:
+                self.__on_exit()
+    
+    def _do_dispatch(self):
         raise NotImplementedError()
     
     def stop_dispatch(self):
         raise _StopDispatch()
+    
+    def set_on_exit_cb(self, cb):
+        self.__on_exit = cb
+
 
 class SelectLoop(EventLoop):
     def __init__(self):
+        EventLoop.__init__(self)
         self.__rfds = []
         self.__wfds = []
         self.__rfd_cbs = {}
@@ -71,7 +86,7 @@ class SelectLoop(EventLoop):
         except ValueError:
             pass
     
-    def dispatch(self):
+    def _do_dispatch(self):
         while True:
             rfds, wfds, _ = select.select(self.__rfds, self.__wfds, [])
             try:
@@ -86,6 +101,7 @@ class SelectLoop(EventLoop):
 if 'epoll' in select.__dict__:
     class EpollLoop(EventLoop):
         def __init__(self):
+            EventLoop.__init__(self)
             self.__epoll = select.epoll()
             self.__ev_map = {EventLoop.EV_IN: select.EPOLLIN,
                              EventLoop.EV_OUT: select.EPOLLOUT}
@@ -121,7 +137,7 @@ if 'epoll' in select.__dict__:
                 del self.__fd_cbs[fd_no]
             self.__epoll.unregister(fd_no)
         
-        def dispatch(self):
+        def _do_dispatch(self):
             while True:
                 events = self.__epoll.poll()
                 try:
@@ -159,7 +175,11 @@ children_num = 0
 def write_child_pipe(fd, _, ev_loop, rfd, fd_buf):
     global finished_children_num
     if fd_buf.empty():
-        line = rfd.readline()
+        try:
+            line = rfd.readline()
+        except ValueError:
+            line = None
+
         if line:
             fd_buf.set_content(line)
         else:
@@ -175,6 +195,7 @@ def write_child_pipe(fd, _, ev_loop, rfd, fd_buf):
         except OSError, e:
             if e.errno == errno.EPIPE: # child has closed the pipe
                 ev_loop.del_event(fd)
+                os.close(fd)
             elif e.errno in [errno.EAGAIN, errno.EWOULDBLOCK]:
                 return
 
@@ -195,6 +216,13 @@ def import_func(mod_file, func_name):
         return None
     
     return entry_func
+
+def close_all_fds(fds):
+    for fd in fds:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
 
 
 def child_main(entry_func, rpipe):
@@ -280,7 +308,11 @@ def main(argv=None):
             children_num += 1
             child_pids.append((pid, data_wfd))
     
-    _event_loop.dispatch()
+    _event_loop.set_on_exit_cb(partial(close_all_fds, [fd for _, fd in child_pids]))
+    try:
+        _event_loop.dispatch()
+    except KeyboardInterrupt:
+        print 'User requests exit.'
         
     for _ in child_pids:
         pid, exit_status = os.wait()
