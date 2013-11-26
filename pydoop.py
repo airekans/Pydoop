@@ -225,6 +225,7 @@ def read_life_signal(fd, _, ev_loop):
     except:
         pass
 
+    os.close(fd)
     pid, exit_status = os.wait()
     print 'child %d exit' % (pid),
     if os.WIFEXITED(exit_status):
