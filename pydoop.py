@@ -157,9 +157,14 @@ if 'epoll' in select.__dict__:
         def _do_dispatch(self):
             while True:
                 events = self.__epoll.poll()
+                event = []
                 try:
                     for fileno, ep_event in events:
-                        event = self.__rev_ev_map[ep_event]
+                        if ep_event & select.EPOLLIN:
+                            event.append(EventLoop.EV_IN)
+                        if ep_event & select.EPOLLOUT:
+                            event.append(EventLoop.EV_OUT)
+                        #event = self.__rev_ev_map[ep_event]
                         self.__fd_cbs[fileno][1](fileno, event, self)
                 except _StopDispatch:
                     break
@@ -201,9 +206,6 @@ def write_child_pipe(fd, _, ev_loop, rfd, fd_buf):
             fd_buf.set_content(line)
         else:
             os.close(fd)
-            finished_children_num += 1
-            if finished_children_num == children_num:
-                ev_loop.stop_dispatch()
             
     while not fd_buf.empty():
         try:
@@ -217,8 +219,9 @@ def write_child_pipe(fd, _, ev_loop, rfd, fd_buf):
                 return
 
 def read_life_signal(fd, _, ev_loop):
+    global finished_children_num
     try:
-        res = os.read(fd, 1)
+        os.read(fd, 1)
     except:
         pass
 
@@ -228,6 +231,10 @@ def read_life_signal(fd, _, ev_loop):
         print 'normally'
     else:
         print 'imnormally'
+
+    finished_children_num += 1
+    if finished_children_num == children_num:
+        ev_loop.stop_dispatch()
 
 def close_all_fds(fds):
     for fd in fds:
@@ -322,6 +329,7 @@ def main(argv=None):
             set_nonblocking(life_rfd)
             write_cb = partial(write_child_pipe, rfd=infd, fd_buf=FdBuffer())
             _event_loop.add_event(data_wfd, EventLoop.EV_OUT, write_cb)
+            _event_loop.add_event(life_rfd, EventLoop.EV_IN, read_life_signal)
             children_num += 1
             child_pids.append((pid, (data_wfd, life_rfd)))
     
@@ -331,14 +339,6 @@ def main(argv=None):
         _event_loop.dispatch()
     except KeyboardInterrupt:
         print 'User requests exit.'
-        
-    for _ in child_pids:
-        pid, exit_status = os.wait()
-        print 'child %d exit' % (pid),
-        if os.WIFEXITED(exit_status):
-            print 'normally'
-        else:
-            print 'imnormally'
     
     print 'All children have been exited'
 
