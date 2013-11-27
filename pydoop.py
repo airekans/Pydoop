@@ -193,7 +193,6 @@ class FdBuffer(object):
     
     
 finished_children_num = 0
-children_num = 0
 def write_child_pipe(fd, _, ev_loop, rfd, fd_buf):
     global finished_children_num
     if fd_buf.empty():
@@ -306,8 +305,6 @@ class Pool(object):
         
 def main(argv=None):
     '''Command line options.'''
-    
-    global children_num
     
     program_name = os.path.basename(sys.argv[0])
  
