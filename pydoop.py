@@ -192,9 +192,7 @@ class FdBuffer(object):
         return len(self.__buffer) == 0
     
     
-finished_children_num = 0
 def write_child_pipe(fd, _, ev_loop, rfd, fd_buf):
-    global finished_children_num
     if fd_buf.empty():
         try:
             line = rfd.readline()
