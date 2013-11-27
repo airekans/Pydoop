@@ -215,7 +215,7 @@ class Pool(object):
         self.__worker_num = worker_num
     
     def run(self, proc_func, infd):
-        self.finished_children_num = 0
+        self.__finished_children_num = 0
         child_pids = []
         for _i in xrange(self.__worker_num):
             try:
@@ -273,8 +273,8 @@ class Pool(object):
         else:
             print 'imnormally'
     
-        self.finished_children_num += 1
-        if self.finished_children_num == self.__worker_num:
+        self.__finished_children_num += 1
+        if self.__finished_children_num == self.__worker_num:
             ev_loop.stop_dispatch()
         
     def write_child_pipe(self, fd, _, ev_loop, rfd, fd_buf):
