@@ -218,24 +218,6 @@ def write_child_pipe(fd, _, ev_loop, rfd, fd_buf):
             elif e.errno in [errno.EAGAIN, errno.EWOULDBLOCK]:
                 return
 
-def read_life_signal(fd, _, ev_loop):
-    global finished_children_num
-    try:
-        os.read(fd, 1)
-    except:
-        pass
-
-    os.close(fd)
-    pid, exit_status = os.wait()
-    print 'child %d exit' % (pid),
-    if os.WIFEXITED(exit_status):
-        print 'normally'
-    else:
-        print 'imnormally'
-
-    finished_children_num += 1
-    if finished_children_num == children_num:
-        ev_loop.stop_dispatch()
 
 def close_all_fds(fds):
     for fd in fds:
@@ -260,7 +242,7 @@ class Pool(object):
         self.__worker_num = worker_num
     
     def run(self, proc_func, infd):
-        global children_num
+        self.finished_children_num = 0
         child_pids = []
         for _i in xrange(self.__worker_num):
             try:
@@ -290,8 +272,7 @@ class Pool(object):
                 set_nonblocking(life_rfd)
                 write_cb = partial(write_child_pipe, rfd=infd, fd_buf=FdBuffer())
                 _event_loop.add_event(data_wfd, EventLoop.EV_OUT, write_cb)
-                _event_loop.add_event(life_rfd, EventLoop.EV_IN, read_life_signal)
-                children_num += 1
+                _event_loop.add_event(life_rfd, EventLoop.EV_IN, self.read_life_signal)
                 child_pids.append((pid, (data_wfd, life_rfd)))
         
         _event_loop.set_on_exit_cb(partial(close_all_fds, 
@@ -304,6 +285,25 @@ class Pool(object):
         
         print 'All children have been exited'
 
+    def read_life_signal(self, fd, _, ev_loop):
+        try:
+            os.read(fd, 1)
+        except:
+            pass
+    
+        os.close(fd)
+        pid, exit_status = os.wait()
+        print 'child %d exit' % (pid),
+        if os.WIFEXITED(exit_status):
+            print 'normally'
+        else:
+            print 'imnormally'
+    
+        self.finished_children_num += 1
+        if self.finished_children_num == self.__worker_num:
+            ev_loop.stop_dispatch()
+        
+        
 def main(argv=None):
     '''Command line options.'''
     
