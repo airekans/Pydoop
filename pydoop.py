@@ -254,6 +254,56 @@ def child_main(entry_func, rpipe):
     rpipe.close()
     return 0
 
+class Pool(object):
+    
+    def __init__(self, worker_num=4):
+        self.__worker_num = worker_num
+    
+    def run(self, proc_func, infd):
+        global children_num
+        child_pids = []
+        for _i in xrange(self.__worker_num):
+            try:
+                data_rfd, data_wfd = os.pipe()
+                life_rfd, life_wfd = os.pipe()
+                pid = os.fork()
+            except OSError, e:
+                print >> sys.stderr, e.strerror
+                break
+            
+            if pid == 0:
+                os.close(data_wfd)
+                os.close(life_rfd)
+                for _, fds in child_pids:
+                    for fd in fds:
+                        os.close(fd)
+                
+                rpipe = os.fdopen(data_rfd, 'r')
+                try:
+                    sys.exit(child_main(proc_func, rpipe))
+                except:
+                    sys.exit(1)
+            else:
+                os.close(data_rfd)
+                os.close(life_wfd)
+                set_nonblocking(data_wfd)
+                set_nonblocking(life_rfd)
+                write_cb = partial(write_child_pipe, rfd=infd, fd_buf=FdBuffer())
+                _event_loop.add_event(data_wfd, EventLoop.EV_OUT, write_cb)
+                _event_loop.add_event(life_rfd, EventLoop.EV_IN, read_life_signal)
+                children_num += 1
+                child_pids.append((pid, (data_wfd, life_rfd)))
+        
+        _event_loop.set_on_exit_cb(partial(close_all_fds, 
+                                           [fds[0] for _, fds in child_pids]))
+
+        try:
+            _event_loop.dispatch()
+        except KeyboardInterrupt:
+            print 'User requests exit.'
+        
+        print 'All children have been exited'
+
 def main(argv=None):
     '''Command line options.'''
     
@@ -301,48 +351,8 @@ def main(argv=None):
     except:
         parser.error('Cannot open input file ' + in_file)
     
-    child_pids = []
-    for _i in xrange(worker_num):
-        try:
-            data_rfd, data_wfd = os.pipe()
-            life_rfd, life_wfd = os.pipe()
-            pid = os.fork()
-        except OSError, e:
-            print >> sys.stderr, e.strerror
-            break
-        
-        if pid == 0:
-            os.close(data_wfd)
-            os.close(life_rfd)
-            for _, fds in child_pids:
-                for fd in fds:
-                    os.close(fd)
-            
-            rpipe = os.fdopen(data_rfd, 'r')
-            try:
-                sys.exit(child_main(child_entry_func, rpipe))
-            except:
-                sys.exit(1)
-        else:
-            os.close(data_rfd)
-            os.close(life_wfd)
-            set_nonblocking(data_wfd)
-            set_nonblocking(life_rfd)
-            write_cb = partial(write_child_pipe, rfd=infd, fd_buf=FdBuffer())
-            _event_loop.add_event(data_wfd, EventLoop.EV_OUT, write_cb)
-            _event_loop.add_event(life_rfd, EventLoop.EV_IN, read_life_signal)
-            children_num += 1
-            child_pids.append((pid, (data_wfd, life_rfd)))
-    
-    _event_loop.set_on_exit_cb(partial(close_all_fds, 
-                                       [fds[0] for _, fds in child_pids]))
-    try:
-        _event_loop.dispatch()
-    except KeyboardInterrupt:
-        print 'User requests exit.'
-    
-    print 'All children have been exited'
-
+    pool = Pool(worker_num)
+    pool.run(child_entry_func, infd)
 
 if __name__ == "__main__":
     sys.exit(main())
