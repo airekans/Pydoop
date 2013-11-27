@@ -245,7 +245,8 @@ class Pool(object):
                 set_nonblocking(life_rfd)
                 write_cb = partial(self.write_child_pipe, rfd=infd, fd_buf=FdBuffer())
                 _event_loop.add_event(data_wfd, EventLoop.EV_OUT, write_cb)
-                _event_loop.add_event(life_rfd, EventLoop.EV_IN, self.read_life_signal)
+                _event_loop.add_event(life_rfd, EventLoop.EV_IN,
+                                      self.read_life_signal)
                 child_pids.append((pid, (data_wfd, life_rfd)))
         
         _event_loop.set_on_exit_cb(partial(close_all_fds, 
@@ -316,7 +317,8 @@ def main(argv=None):
                           help="number of workers", metavar="NUM",
                           type="int", default=4)
         parser.add_option("-f", "--func", dest="func",
-                          help="entry function in the JOBFILE")
+                          default="main",
+                          help="entry function in the JOBFILE, default to main")
     except Exception, e:
         indent = len(program_name) * " "
         sys.stderr.write(program_name + ": " + repr(e) + "\n")
@@ -332,7 +334,6 @@ def main(argv=None):
     job_file = args[0]
     in_file = args[1]
     
-    # MAIN BODY #
     # first try to import the specified function
     assert opts.func
     if opts.func:
