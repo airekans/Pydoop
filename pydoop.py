@@ -216,6 +216,7 @@ class Pool(object):
     
     def run(self, proc_func, infd):
         self.__finished_children_num = 0
+        self.__infd = infd
         child_pids = []
         for _i in xrange(self.__worker_num):
             try:
@@ -243,7 +244,7 @@ class Pool(object):
                 os.close(life_wfd)
                 set_nonblocking(data_wfd)
                 set_nonblocking(life_rfd)
-                write_cb = partial(self.write_child_pipe, rfd=infd, fd_buf=FdBuffer())
+                write_cb = partial(self.write_child_pipe, fd_buf=FdBuffer())
                 _event_loop.add_event(data_wfd, EventLoop.EV_OUT, write_cb)
                 _event_loop.add_event(life_rfd, EventLoop.EV_IN,
                                       self.read_life_signal)
@@ -277,10 +278,10 @@ class Pool(object):
         if self.__finished_children_num == self.__worker_num:
             ev_loop.stop_dispatch()
         
-    def write_child_pipe(self, fd, _, ev_loop, rfd, fd_buf):
+    def write_child_pipe(self, fd, _, ev_loop, fd_buf):
         if fd_buf.empty():
             try:
-                line = rfd.readline()
+                line = self.__infd.readline()
             except ValueError:
                 line = None
     
