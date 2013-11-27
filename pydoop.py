@@ -191,30 +191,6 @@ class FdBuffer(object):
     def empty(self):
         return len(self.__buffer) == 0
     
-    
-def write_child_pipe(fd, _, ev_loop, rfd, fd_buf):
-    if fd_buf.empty():
-        try:
-            line = rfd.readline()
-        except ValueError:
-            line = None
-
-        if line:
-            fd_buf.set_content(line)
-        else:
-            os.close(fd)
-            
-    while not fd_buf.empty():
-        try:
-            n = os.write(fd, fd_buf.content())
-            fd_buf.skip(n)
-        except OSError, e:
-            if e.errno == errno.EPIPE: # child has closed the pipe
-                ev_loop.del_event(fd)
-                os.close(fd)
-            elif e.errno in [errno.EAGAIN, errno.EWOULDBLOCK]:
-                return
-
 
 def close_all_fds(fds):
     for fd in fds:
@@ -267,7 +243,7 @@ class Pool(object):
                 os.close(life_wfd)
                 set_nonblocking(data_wfd)
                 set_nonblocking(life_rfd)
-                write_cb = partial(write_child_pipe, rfd=infd, fd_buf=FdBuffer())
+                write_cb = partial(self.write_child_pipe, rfd=infd, fd_buf=FdBuffer())
                 _event_loop.add_event(data_wfd, EventLoop.EV_OUT, write_cb)
                 _event_loop.add_event(life_rfd, EventLoop.EV_IN, self.read_life_signal)
                 child_pids.append((pid, (data_wfd, life_rfd)))
@@ -300,6 +276,29 @@ class Pool(object):
         if self.finished_children_num == self.__worker_num:
             ev_loop.stop_dispatch()
         
+    def write_child_pipe(self, fd, _, ev_loop, rfd, fd_buf):
+        if fd_buf.empty():
+            try:
+                line = rfd.readline()
+            except ValueError:
+                line = None
+    
+            if line:
+                fd_buf.set_content(line)
+            else:
+                os.close(fd)
+                
+        while not fd_buf.empty():
+            try:
+                n = os.write(fd, fd_buf.content())
+                fd_buf.skip(n)
+            except OSError, e:
+                if e.errno == errno.EPIPE: # child has closed the pipe
+                    ev_loop.del_event(fd)
+                    os.close(fd)
+                elif e.errno in [errno.EAGAIN, errno.EWOULDBLOCK]:
+                    return
+    
         
 def main(argv=None):
     '''Command line options.'''
