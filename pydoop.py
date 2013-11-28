@@ -238,6 +238,8 @@ class Pool(object):
                 try:
                     sys.exit(child_main(proc_func, rpipe))
                 except:
+                    import traceback
+                    traceback.print_exc()
                     sys.exit(1)
             else:
                 os.close(data_rfd)
