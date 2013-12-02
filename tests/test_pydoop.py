@@ -9,6 +9,8 @@ class Test(unittest.TestCase):
     def setUp(self):
         self.__epoll_loop = pydoop.EpollLoop()
         self.__select_loop = pydoop.SelectLoop()
+        cur_dir = os.path.dirname(__file__)
+        self._data_path = os.path.join(cur_dir, 'test_data')
  
     def tearDown(self):
         pass
@@ -49,7 +51,7 @@ class Test(unittest.TestCase):
         
         is_read_call = [False]
         def on_read(fd, event, ev_loop):
-            self.assertEqual(pydoop.EventLoop.EV_IN, event)
+            self.assertEqual([pydoop.EventLoop.EV_IN], event)
             is_read_call[0] = True
             res = os.read(fd, 1)
             self.assertEqual(' ', res)
@@ -70,7 +72,7 @@ class Test(unittest.TestCase):
         is_write_call = [False]
         expected = ' '
         def on_write(fd, event, ev_loop):
-            self.assertEqual(pydoop.EventLoop.EV_OUT, event)
+            self.assertEqual([pydoop.EventLoop.EV_OUT], event)
             is_write_call[0] = True
             os.write(fd, expected)
             ev_loop.stop_dispatch()
@@ -133,6 +135,21 @@ class Test(unittest.TestCase):
         self.assertTrue(is_write_call[0])
         actual = os.read(rfd, 1)
         self.assertEqual(expected, actual)
+
+    def testPoolCtor(self):
+        pool = pydoop.Pool(4)
+        self.assertTrue(pool)
+        
+    def testPoolRun(self):
+        pool = pydoop.Pool(4)
+        infd = open(os.path.join(self._data_path, 'input.txt'))
+        expected_lines = [l for l in infd]
+        def func(l):
+            print l
+            self.assertIn(l, expected_lines)
+
+        pool.run(func, open(os.path.join(self._data_path, 'input.txt')))
+
 
 
 if __name__ == "__main__":

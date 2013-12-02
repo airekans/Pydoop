@@ -157,15 +157,15 @@ if 'epoll' in select.__dict__:
         def _do_dispatch(self):
             while True:
                 events = self.__epoll.poll()
-                event = []
+                loop_evs = []
                 try:
                     for fileno, ep_event in events:
                         if ep_event & select.EPOLLIN:
-                            event.append(EventLoop.EV_IN)
+                            loop_evs.append(EventLoop.EV_IN)
                         if ep_event & select.EPOLLOUT:
-                            event.append(EventLoop.EV_OUT)
-                        #event = self.__rev_ev_map[ep_event]
-                        self.__fd_cbs[fileno][1](fileno, event, self)
+                            loop_evs.append(EventLoop.EV_OUT)
+
+                        self.__fd_cbs[fileno][1](fileno, loop_evs, self)
                 except _StopDispatch:
                     break
     
@@ -235,12 +235,7 @@ class Pool(object):
                         os.close(fd)
                 
                 rpipe = os.fdopen(data_rfd, 'r')
-                try:
-                    sys.exit(child_main(proc_func, rpipe))
-                except:
-                    import traceback
-                    traceback.print_exc()
-                    sys.exit(1)
+                sys.exit(child_main(proc_func, rpipe))
             else:
                 os.close(data_rfd)
                 os.close(life_wfd)
