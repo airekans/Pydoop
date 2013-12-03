@@ -148,7 +148,9 @@ class Test(unittest.TestCase):
             print l
             self.assertIn(l, expected_lines)
 
-        pool.run(func, open(os.path.join(self._data_path, 'input.txt')))
+        actual = pool.run(func, open(os.path.join(self._data_path,
+                                                  'input.txt')))
+        self.assertEqual(len(expected_lines), actual)
 
 
 

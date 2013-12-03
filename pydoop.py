@@ -200,12 +200,14 @@ def close_all_fds(fds):
             pass
 
 
-def child_main(entry_func, rpipe):
+def child_main(entry_func, rpipe, wpipe):
     line = rpipe.readline()
     while line:
         entry_func(line)
+        wpipe.write('2')
         line = rpipe.readline()
 
+    wpipe.close()
     rpipe.close()
     return 0
 
@@ -218,6 +220,7 @@ class Pool(object):
         self.__finished_children_num = 0
         self.__infd = infd
         child_pids = []
+        self.__fd_task_num = {}
         for _i in xrange(self.__worker_num):
             try:
                 data_rfd, data_wfd = os.pipe()
@@ -235,7 +238,8 @@ class Pool(object):
                         os.close(fd)
                 
                 rpipe = os.fdopen(data_rfd, 'r')
-                sys.exit(child_main(proc_func, rpipe))
+                wpipe = os.fdopen(life_wfd, 'w')
+                sys.exit(child_main(proc_func, rpipe, wpipe))
             else:
                 os.close(data_rfd)
                 os.close(life_wfd)
@@ -246,6 +250,7 @@ class Pool(object):
                 _event_loop.add_event(life_rfd, EventLoop.EV_IN,
                                       self.read_life_signal)
                 child_pids.append((pid, (data_wfd, life_rfd)))
+                self.__fd_task_num[life_rfd] = 0
         
         _event_loop.set_on_exit_cb(partial(close_all_fds, 
                                            [fds[0] for _, fds in child_pids]))
@@ -255,25 +260,31 @@ class Pool(object):
         except KeyboardInterrupt:
             print 'User requests exit.'
         
-        print 'All children have been exited'
+        return reduce(lambda x, y: x + y, self.__fd_task_num.values())
 
     def read_life_signal(self, fd, _, ev_loop):
+        is_child_end = False
         try:
-            os.read(fd, 1)
+            c = os.read(fd, 1)
+            if len(c) > 0:
+                self.__fd_task_num[fd] += 1
+            else:
+                is_child_end = True
         except:
-            pass
-    
-        os.close(fd)
-        pid, exit_status = os.wait()
-        print 'child %d exit' % (pid),
-        if os.WIFEXITED(exit_status):
-            print 'normally'
-        else:
-            print 'imnormally'
-    
-        self.__finished_children_num += 1
-        if self.__finished_children_num == self.__worker_num:
-            ev_loop.stop_dispatch()
+            is_child_end = True
+            
+        if is_child_end:
+            os.close(fd)
+            pid, exit_status = os.wait()
+            print 'child %d exit' % (pid),
+            if os.WIFEXITED(exit_status):
+                print 'normally'
+            else:
+                print 'imnormally'
+        
+            self.__finished_children_num += 1
+            if self.__finished_children_num == self.__worker_num:
+                ev_loop.stop_dispatch()
         
     def write_child_pipe(self, fd, _, ev_loop, fd_buf):
         if fd_buf.empty():
