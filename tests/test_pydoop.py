@@ -151,6 +151,10 @@ def assert_errno(func, error_num):
     except:
         assert False
 
+def assert_eof(fd):
+    res = fd.read(1)
+    assert len(res) == 0
+
 cur_dir = os.path.dirname(__file__)
 _data_path = os.path.join(cur_dir, 'test_data')
 
@@ -161,9 +165,11 @@ def testPoolRun():
     def func(l):
         assert l in expected_lines
 
-    actual = pool.run(func, open(os.path.join(_data_path, 'input.txt')))
+    infd = open(os.path.join(_data_path, 'input.txt'))
+    actual = pool.run(func, infd)
     assert len(expected_lines) == actual
     assert_errno(partial(os.waitpid, 0, os.WNOHANG), errno.ECHILD)
+    assert_eof(infd)
 
 def testPoolRunWithFailure():
     pool = pydoop.Pool(4)
@@ -174,9 +180,11 @@ def testPoolRunWithFailure():
         if int(l.strip()[-1]) % 2 == 0:
             raise Exception
 
-    actual = pool.run(func, open(os.path.join(_data_path, 'input.txt')))
+    infd = open(os.path.join(_data_path, 'input.txt'))
+    actual = pool.run(func, infd)
     assert len(expected_lines) / 2 == actual
     assert_errno(partial(os.waitpid, 0, os.WNOHANG), errno.ECHILD)
+    assert_eof(infd)
 
 
 if __name__ == "__main__":
