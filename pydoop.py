@@ -28,7 +28,7 @@ def import_func(mod_file, func_name):
     try:
         mod = import_mod(mod_name)
     except ImportError:
-        print 'cannot import module', mod_name
+        print >> sys.stderr, 'cannot import module', mod_name
         return None
     
     try:
@@ -169,9 +169,9 @@ if 'epoll' in select.__dict__:
                 except _StopDispatch:
                     break
     
-    _event_loop = EpollLoop()
+    _EventLoop = EpollLoop
 else:
-    _event_loop = SelectLoop()
+    _EventLoop = SelectLoop
     
 
 class FdBuffer(object):
@@ -218,9 +218,11 @@ class Pool(object):
     
     def run(self, proc_func, infd):
         self.__finished_children_num = 0
+        self.__event_loop = _EventLoop()
         self.__infd = infd
         child_pids = []
         self.__fd_task_num = {}
+
         for _i in xrange(self.__worker_num):
             try:
                 data_rfd, data_wfd = os.pipe()
@@ -239,24 +241,31 @@ class Pool(object):
                 
                 rpipe = os.fdopen(data_rfd, 'r')
                 wpipe = os.fdopen(life_wfd, 'w')
-                sys.exit(child_main(proc_func, rpipe, wpipe))
+                try:
+                    ret = child_main(proc_func, rpipe, wpipe)
+                except:
+                    import traceback
+                    traceback.print_exc()
+                    sys.exit(1)
+                    
+                sys.exit(ret)
             else:
                 os.close(data_rfd)
                 os.close(life_wfd)
                 set_nonblocking(data_wfd)
                 set_nonblocking(life_rfd)
                 write_cb = partial(self.write_child_pipe, fd_buf=FdBuffer())
-                _event_loop.add_event(data_wfd, EventLoop.EV_OUT, write_cb)
-                _event_loop.add_event(life_rfd, EventLoop.EV_IN,
+                self.__event_loop.add_event(data_wfd, EventLoop.EV_OUT, write_cb)
+                self.__event_loop.add_event(life_rfd, EventLoop.EV_IN,
                                       self.read_life_signal)
                 child_pids.append((pid, (data_wfd, life_rfd)))
                 self.__fd_task_num[life_rfd] = 0
         
-        _event_loop.set_on_exit_cb(partial(close_all_fds, 
+        self.__event_loop.set_on_exit_cb(partial(close_all_fds, 
                                            [fds[0] for _, fds in child_pids]))
 
         try:
-            _event_loop.dispatch()
+            self.__event_loop.dispatch()
         except KeyboardInterrupt:
             print 'User requests exit.'
         
@@ -277,7 +286,7 @@ class Pool(object):
             os.close(fd)
             pid, exit_status = os.wait()
             print 'child %d exit' % (pid),
-            if os.WIFEXITED(exit_status):
+            if os.WIFEXITED(exit_status) and os.WEXITSTATUS(exit_status) == 0:
                 print 'normally'
             else:
                 print 'imnormally'

@@ -140,21 +140,37 @@ class Test(unittest.TestCase):
         pool = pydoop.Pool(4)
         self.assertTrue(pool)
         
-    def testPoolRun(self):
-        pool = pydoop.Pool(4)
-        infd = open(os.path.join(self._data_path, 'input.txt'))
-        expected_lines = [l for l in infd]
-        def func(l):
-            print l
-            self.assertIn(l, expected_lines)
 
-        actual = pool.run(func, open(os.path.join(self._data_path,
-                                                  'input.txt')))
-        self.assertEqual(len(expected_lines), actual)
+cur_dir = os.path.dirname(__file__)
+_data_path = os.path.join(cur_dir, 'test_data')
 
+def testPoolRun():
+    pool = pydoop.Pool(4)
+    infd = open(os.path.join(_data_path, 'input.txt'))
+    expected_lines = [l for l in infd]
+    def func(l):
+        assert l in expected_lines
+
+    actual = pool.run(func, open(os.path.join(_data_path, 'input.txt')))
+    assert len(expected_lines) == actual
+
+def testPoolRunWithFailure():
+    pool = pydoop.Pool(4)
+    infd = open(os.path.join(_data_path, 'input.txt'))
+    expected_lines = [l for l in infd]
+    def func(l):
+        assert l in expected_lines
+        if int(l.strip()[-1]) % 2 == 0:
+            raise Exception
+
+    actual = pool.run(func, open(os.path.join(_data_path, 'input.txt')))
+    assert len(expected_lines) / 2 == actual
+    #assert False
 
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']
+    testPoolRun()
+    testPoolRunWithFailure()
     unittest.main()
 
