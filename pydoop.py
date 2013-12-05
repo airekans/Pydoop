@@ -289,7 +289,7 @@ class Pool(object):
             if os.WIFEXITED(exit_status) and os.WEXITSTATUS(exit_status) == 0:
                 print 'normally'
             else:
-                print 'imnormally'
+                print 'abnormally'
         
             self.__finished_children_num += 1
             if self.__finished_children_num == self.__worker_num:

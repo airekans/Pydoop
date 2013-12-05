@@ -1,6 +1,7 @@
 import unittest
 import pydoop
 import os
+import errno
 from functools import partial
 
 
@@ -139,7 +140,16 @@ class Test(unittest.TestCase):
     def testPoolCtor(self):
         pool = pydoop.Pool(4)
         self.assertTrue(pool)
-        
+
+
+def assert_errno(func, error_num):
+    try:
+        func()
+        assert False # should not reach here
+    except OSError, e:
+        assert e.errno == errno.ECHILD
+    except:
+        assert False
 
 cur_dir = os.path.dirname(__file__)
 _data_path = os.path.join(cur_dir, 'test_data')
@@ -153,6 +163,7 @@ def testPoolRun():
 
     actual = pool.run(func, open(os.path.join(_data_path, 'input.txt')))
     assert len(expected_lines) == actual
+    assert_errno(partial(os.waitpid, 0, os.WNOHANG), errno.ECHILD)
 
 def testPoolRunWithFailure():
     pool = pydoop.Pool(4)
@@ -165,7 +176,7 @@ def testPoolRunWithFailure():
 
     actual = pool.run(func, open(os.path.join(_data_path, 'input.txt')))
     assert len(expected_lines) / 2 == actual
-    #assert False
+    assert_errno(partial(os.waitpid, 0, os.WNOHANG), errno.ECHILD)
 
 
 if __name__ == "__main__":
