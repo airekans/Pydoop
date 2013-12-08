@@ -147,8 +147,10 @@ def assert_errno(func, error_num):
         func()
         assert False # should not reach here
     except OSError, e:
-        assert e.errno == errno.ECHILD
+        assert e.errno == error_num
     except:
+        import traceback
+        traceback.print_exc()
         assert False
 
 def assert_eof(fd):

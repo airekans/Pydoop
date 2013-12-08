@@ -299,8 +299,10 @@ class Pool(object):
                 self.__event_loop.add_event(data_wfd, EventLoop.EV_OUT, write_cb)
                 self.__event_loop.add_event(life_rfd, EventLoop.EV_IN,
                                       self.read_life_signal)
+
                 close_fds += [data_wfd, life_rfd]
-                self.__fd_task_num[life_rfd] = 0
+                child_proc.finished_task_num = 0
+                self.__fd_task_num[life_rfd] = child_proc
                 
         
         self.__event_loop.set_on_exit_cb(partial(close_all_fds, 
@@ -311,22 +313,33 @@ class Pool(object):
         except KeyboardInterrupt:
             print 'User requests exit.'
         
-        return reduce(operator.add, self.__fd_task_num.values())
+        return reduce(operator.add, 
+                      [p.finished_task_num for p in self.__fd_task_num.itervalues()])
 
     def read_life_signal(self, fd, _, ev_loop):
+        child_proc = self.__fd_task_num[fd]
         is_child_end = False
+
         try:
             c = os.read(fd, 1)
             if len(c) > 0:
-                self.__fd_task_num[fd] += 1
+                child_proc.finished_task_num += 1
             else:
                 is_child_end = True
         except:
             is_child_end = True
             
         if is_child_end:
+            try:
+                pid, exit_status = child_proc.join(os.WNOHANG)
+            except OSError:
+                return # not exit yet
+            
+            if pid == 0:
+                return
+
             os.close(fd)
-            pid, exit_status = os.wait()
+            assert pid == child_proc.get_pid()
             print 'child %d exit' % (pid),
             if os.WIFEXITED(exit_status) and os.WEXITSTATUS(exit_status) == 0:
                 print 'normally'
