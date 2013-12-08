@@ -201,17 +201,6 @@ def close_all_fds(fds):
             pass
 
 
-def child_main(entry_func, rpipe, wpipe):
-    line = rpipe.readline()
-    while line:
-        entry_func(line)
-        wpipe.write('2')
-        line = rpipe.readline()
-
-    wpipe.close()
-    rpipe.close()
-    return 0
-
 class Process(object):
     
     def __init__(self, func):
@@ -271,6 +260,22 @@ class Pool(object):
     
     def __init__(self, worker_num=4):
         self.__worker_num = worker_num
+        
+    @staticmethod
+    def __child_main(work_func, data_rfd, life_wfd):
+        rpipe = os.fdopen(data_rfd, 'r')
+        wpipe = os.fdopen(life_wfd, 'w')
+        try:
+            line = rpipe.readline()
+            while line:
+                work_func(line)
+                wpipe.write('2')
+                line = rpipe.readline()
+        finally:
+            wpipe.close()
+            rpipe.close()
+    
+        return 0
     
     def run(self, proc_func, infd):
         self.__finished_children_num = 0
@@ -280,11 +285,7 @@ class Pool(object):
         self.__fd_task_num = {}
 
         for _i in xrange(self.__worker_num):
-            def proc(data_rfd, life_wfd):
-                rpipe = os.fdopen(data_rfd, 'r')
-                wpipe = os.fdopen(life_wfd, 'w')
-                return child_main(proc_func, rpipe, wpipe)
-            child_proc = Process(proc)
+            child_proc = Process(partial(Pool.__child_main, proc_func))
             pid, data_wfd, life_rfd = \
                 child_proc.start(reduce(operator.add, [fds for _, fds in child_pids], []))
                 
