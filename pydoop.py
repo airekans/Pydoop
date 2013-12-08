@@ -211,6 +211,61 @@ def child_main(entry_func, rpipe, wpipe):
     rpipe.close()
     return 0
 
+class Process(object):
+    
+    def __init__(self, func):
+        self.__func = func
+        self.__pid = -1
+    
+    def __close_fd(self, fd):
+        try:
+            os.close(fd)
+        except:
+            pass
+        
+    def get_pid(self):
+        return self.__pid
+        
+    def start(self, close_fds=[]):
+        pipe_fds = []
+        try:
+            data_rfd, data_wfd = os.pipe()
+            pipe_fds += [data_rfd, data_wfd]
+            life_rfd, life_wfd = os.pipe()
+            pipe_fds += [life_rfd, life_wfd]
+            pid = os.fork()
+        except OSError, e:
+            print >> sys.stderr, e.strerror
+            for fd in pipe_fds:
+                self.__close_fd(fd)
+            return 0, -1, -1
+        
+        if pid == 0: # child
+            self.__close_fd(data_wfd)
+            self.__close_fd(life_rfd)
+            for fd in close_fds:
+                self.__close_fd(fd)
+                
+            try:
+                ret = self.__func(data_rfd, life_wfd)
+            except:
+                import traceback
+                traceback.print_exc()
+                sys.exit(1)
+                
+            sys.exit(ret)
+        else: # parent
+            os.close(data_rfd)
+            os.close(life_wfd)
+            self.__pid = pid
+            return pid, data_wfd, life_rfd
+        
+    def join(self, options=0):
+        if self.__pid == -1:
+            return
+        
+        return os.waitpid(self.__pid, options)
+
 class Pool(object):
     
     def __init__(self, worker_num=4):
