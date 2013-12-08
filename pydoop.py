@@ -305,6 +305,7 @@ class Pool(object):
 
                 close_fds += [data_wfd, life_rfd]
                 child_proc.finished_task_num = 0
+                child_proc.assigned_task_num = 0
                 self.__fd_proc[life_rfd] = child_proc
                 
                 child_proc.wfd_buf = FdBuffer()
@@ -342,8 +343,13 @@ class Pool(object):
             except OSError:
                 return # not exit yet
             
-            if pid == 0:
+            if pid == 0: # not exit yet
                 return
+            
+            if child_proc.finished_task_num < child_proc.assigned_task_num:
+                # It means the child has exited too soon.
+                # TODO: we should do something here.
+                pass 
 
             os.close(fd)
             assert pid == child_proc.get_pid()
@@ -369,8 +375,14 @@ class Pool(object):
     
             if line:
                 fd_buf.set_content(line)
+                child_proc.assigned_task_num += 1
             else:
-                os.close(fd)
+                try:
+                    ev_loop.del_event(fd)
+                    os.close(fd)
+                except:
+                    import pdb
+                    pdb.set_trace()
                 
         while not fd_buf.empty():
             try:
