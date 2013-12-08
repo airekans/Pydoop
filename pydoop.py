@@ -292,7 +292,7 @@ class Pool(object):
                 
             if pid == 0:
                 print >> sys.stderr, 'failed to create child process'
-                sys.exit(1) # TODO: should wait other children
+                continue
             else:
                 self.__children.append(child_proc)
                 
@@ -318,9 +318,10 @@ class Pool(object):
             self.__event_loop.dispatch()
         except KeyboardInterrupt:
             print 'User requests exit.'
+            # TODO: we should kill all children here.
         
         return reduce(operator.add, 
-                      [p.finished_task_num for p in self.__children])
+                      [p.finished_task_num for p in self.__children], 0)
 
     def read_life_signal(self, fd, _, ev_loop):
         child_proc = self.__fd_proc[fd]
@@ -353,7 +354,7 @@ class Pool(object):
                 print 'abnormally'
         
             self.__finished_children_num += 1
-            if self.__finished_children_num == self.__worker_num:
+            if self.__finished_children_num == len(self.__children):
                 ev_loop.stop_dispatch()
         
     def write_child_pipe(self, fd, _, ev_loop):

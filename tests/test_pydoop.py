@@ -173,7 +173,7 @@ def testPoolRun():
     assert_errno(partial(os.waitpid, 0, os.WNOHANG), errno.ECHILD)
     assert_eof(infd)
 
-def testPoolRunWithFailure():
+def testPoolRunWithWorkerFailure():
     pool = pydoop.Pool(4)
     infd = open(os.path.join(_data_path, 'input.txt'))
     expected_lines = [l for l in infd]
@@ -188,10 +188,37 @@ def testPoolRunWithFailure():
     assert_errno(partial(os.waitpid, 0, os.WNOHANG), errno.ECHILD)
     assert_eof(infd)
 
+def testPoolRunWithForkFailure():
+    pool = pydoop.Pool(4)
+    infd = open(os.path.join(_data_path, 'input.txt'))
+    expected_lines = [l for l in infd]
+    def func(l):
+        assert l in expected_lines
+
+    infd = open(os.path.join(_data_path, 'input.txt'))
+    fork_cnt = [0]
+    def test_fork(real_fork):
+        fork_cnt[0] += 1
+        if fork_cnt[0] % 2 == 0:
+            raise OSError
+        else:
+            return real_fork()
+        
+    old_fork = os.fork
+    try:
+        os.fork = partial(test_fork, old_fork)
+        actual = pool.run(func, infd)
+    finally:
+        os.fork = old_fork
+
+    assert len(expected_lines) == actual
+    assert_errno(partial(os.waitpid, 0, os.WNOHANG), errno.ECHILD)
+    assert_eof(infd)
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']
     testPoolRun()
-    testPoolRunWithFailure()
+    testPoolRunWithWorkerFailure()
+    testPoolRunWithForkFailure()
     unittest.main()
 
