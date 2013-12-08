@@ -11,6 +11,7 @@ import select
 import fcntl
 from functools import partial
 import errno
+import operator
 try:
     from importlib import import_module as import_mod
 except:
@@ -279,42 +280,27 @@ class Pool(object):
         self.__fd_task_num = {}
 
         for _i in xrange(self.__worker_num):
-            try:
-                data_rfd, data_wfd = os.pipe()
-                life_rfd, life_wfd = os.pipe()
-                pid = os.fork()
-            except OSError, e:
-                print >> sys.stderr, e.strerror
-                break
-            
-            if pid == 0:
-                os.close(data_wfd)
-                os.close(life_rfd)
-                for _, fds in child_pids:
-                    for fd in fds:
-                        os.close(fd)
-                
+            def proc(data_rfd, life_wfd):
                 rpipe = os.fdopen(data_rfd, 'r')
                 wpipe = os.fdopen(life_wfd, 'w')
-                try:
-                    ret = child_main(proc_func, rpipe, wpipe)
-                except:
-                    import traceback
-                    traceback.print_exc()
-                    sys.exit(1)
-                    
-                sys.exit(ret)
+                return child_main(proc_func, rpipe, wpipe)
+            child_proc = Process(proc)
+            pid, data_wfd, life_rfd = \
+                child_proc.start(reduce(operator.add, [fds for _, fds in child_pids], []))
+                
+            if pid == 0:
+                print >> sys.stderr, 'failed to create child process'
+                sys.exit(1) # TODO: should wait other children
             else:
-                os.close(data_rfd)
-                os.close(life_wfd)
                 set_nonblocking(data_wfd)
                 set_nonblocking(life_rfd)
                 write_cb = partial(self.write_child_pipe, fd_buf=FdBuffer())
                 self.__event_loop.add_event(data_wfd, EventLoop.EV_OUT, write_cb)
                 self.__event_loop.add_event(life_rfd, EventLoop.EV_IN,
                                       self.read_life_signal)
-                child_pids.append((pid, (data_wfd, life_rfd)))
+                child_pids.append((pid, [data_wfd, life_rfd]))
                 self.__fd_task_num[life_rfd] = 0
+                
         
         self.__event_loop.set_on_exit_cb(partial(close_all_fds, 
                                            [fds[0] for _, fds in child_pids]))
