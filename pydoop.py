@@ -281,13 +281,13 @@ class Pool(object):
         self.__finished_children_num = 0
         self.__event_loop = _EventLoop()
         self.__infd = infd
-        child_pids = []
+        close_fds = []
         self.__fd_task_num = {}
 
         for _i in xrange(self.__worker_num):
             child_proc = Process(partial(Pool.__child_main, proc_func))
             pid, data_wfd, life_rfd = \
-                child_proc.start(reduce(operator.add, [fds for _, fds in child_pids], []))
+                child_proc.start([fd for fd in close_fds])
                 
             if pid == 0:
                 print >> sys.stderr, 'failed to create child process'
@@ -299,19 +299,19 @@ class Pool(object):
                 self.__event_loop.add_event(data_wfd, EventLoop.EV_OUT, write_cb)
                 self.__event_loop.add_event(life_rfd, EventLoop.EV_IN,
                                       self.read_life_signal)
-                child_pids.append((pid, [data_wfd, life_rfd]))
+                close_fds += [data_wfd, life_rfd]
                 self.__fd_task_num[life_rfd] = 0
                 
         
         self.__event_loop.set_on_exit_cb(partial(close_all_fds, 
-                                           [fds[0] for _, fds in child_pids]))
+                                           [fd for fd in close_fds]))
 
         try:
             self.__event_loop.dispatch()
         except KeyboardInterrupt:
             print 'User requests exit.'
         
-        return reduce(lambda x, y: x + y, self.__fd_task_num.values())
+        return reduce(operator.add, self.__fd_task_num.values())
 
     def read_life_signal(self, fd, _, ev_loop):
         is_child_end = False
