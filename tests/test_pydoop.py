@@ -169,7 +169,7 @@ def testPoolRun():
 
     infd = open(os.path.join(_data_path, 'input.txt'))
     actual = pool.run(func, infd)
-    assert len(expected_lines) == actual
+    assert len(expected_lines) == actual, '%d != %d' % (len(expected_lines), actual)
     assert_errno(partial(os.waitpid, 0, os.WNOHANG), errno.ECHILD)
     assert_eof(infd)
 

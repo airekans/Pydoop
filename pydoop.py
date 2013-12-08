@@ -281,8 +281,9 @@ class Pool(object):
         self.__finished_children_num = 0
         self.__event_loop = _EventLoop()
         self.__infd = infd
+        self.__fd_proc = {}
+        self.__children = []
         close_fds = []
-        self.__fd_task_num = {}
 
         for _i in xrange(self.__worker_num):
             child_proc = Process(partial(Pool.__child_main, proc_func))
@@ -293,16 +294,21 @@ class Pool(object):
                 print >> sys.stderr, 'failed to create child process'
                 sys.exit(1) # TODO: should wait other children
             else:
+                self.__children.append(child_proc)
+                
                 set_nonblocking(data_wfd)
                 set_nonblocking(life_rfd)
-                write_cb = partial(self.write_child_pipe, fd_buf=FdBuffer())
-                self.__event_loop.add_event(data_wfd, EventLoop.EV_OUT, write_cb)
+                self.__event_loop.add_event(data_wfd, EventLoop.EV_OUT, 
+                                            self.write_child_pipe)
                 self.__event_loop.add_event(life_rfd, EventLoop.EV_IN,
-                                      self.read_life_signal)
+                                            self.read_life_signal)
 
                 close_fds += [data_wfd, life_rfd]
                 child_proc.finished_task_num = 0
-                self.__fd_task_num[life_rfd] = child_proc
+                self.__fd_proc[life_rfd] = child_proc
+                
+                child_proc.wfd_buf = FdBuffer()
+                self.__fd_proc[data_wfd] = child_proc
                 
         
         self.__event_loop.set_on_exit_cb(partial(close_all_fds, 
@@ -314,10 +320,10 @@ class Pool(object):
             print 'User requests exit.'
         
         return reduce(operator.add, 
-                      [p.finished_task_num for p in self.__fd_task_num.itervalues()])
+                      [p.finished_task_num for p in self.__children])
 
     def read_life_signal(self, fd, _, ev_loop):
-        child_proc = self.__fd_task_num[fd]
+        child_proc = self.__fd_proc[fd]
         is_child_end = False
 
         try:
@@ -350,7 +356,10 @@ class Pool(object):
             if self.__finished_children_num == self.__worker_num:
                 ev_loop.stop_dispatch()
         
-    def write_child_pipe(self, fd, _, ev_loop, fd_buf):
+    def write_child_pipe(self, fd, _, ev_loop):
+        child_proc = self.__fd_proc[fd]
+        fd_buf = child_proc.wfd_buf
+        
         if fd_buf.empty():
             try:
                 line = self.__infd.readline()
