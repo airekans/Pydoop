@@ -12,11 +12,13 @@ import fcntl
 from functools import partial
 import errno
 import operator
+import logging
 try:
     from importlib import import_module as import_mod
 except:
     import_mod = __import__
 
+logging.basicConfig(level=logging.DEBUG)
 
 def set_nonblocking(fd):
     val = fcntl.fcntl(fd, fcntl.F_GETFL)
@@ -61,6 +63,7 @@ class EventLoop(object):
         finally:
             if self.__on_exit:
                 self.__on_exit()
+            logging.debug('event loop ended')
     
     def _do_dispatch(self):
         raise NotImplementedError()
@@ -196,6 +199,7 @@ class FdBuffer(object):
 def close_all_fds(fds):
     for fd in fds:
         try:
+            logging.debug('close_all_fds: close %d', fd)
             os.close(fd)
         except OSError:
             pass
@@ -209,6 +213,7 @@ class Process(object):
     
     def __close_fd(self, fd):
         try:
+            logging.debug('Process.__close_fd: close %d', fd)
             os.close(fd)
         except:
             pass
@@ -225,7 +230,7 @@ class Process(object):
             pipe_fds += [life_rfd, life_wfd]
             pid = os.fork()
         except OSError, e:
-            print >> sys.stderr, e.strerror
+            logging.warning('Process fork error: %s', e.strerror)
             for fd in pipe_fds:
                 self.__close_fd(fd)
             return 0, -1, -1
@@ -245,6 +250,7 @@ class Process(object):
                 
             sys.exit(ret)
         else: # parent
+            logging.debug('Process.run: parent close %d %d', data_rfd, life_wfd)
             os.close(data_rfd)
             os.close(life_wfd)
             self.__pid = pid
@@ -272,6 +278,8 @@ class Pool(object):
                 wpipe.write('2')
                 line = rpipe.readline()
         finally:
+            logging.debug('Pool.__child_main: exit and close %d %d', 
+                          wpipe.fileno(), rpipe.fileno())
             wpipe.close()
             rpipe.close()
     
@@ -334,6 +342,11 @@ class Pool(object):
                 child_proc.finished_task_num += 1
             else:
                 is_child_end = True
+        except OSError, e:
+            if e.errno not in [errno.EAGAIN, errno.EWOULDBLOCK]:
+                is_child_end = True
+            else:
+                assert False, 'unexpected errno: %d' % e.errno
         except:
             is_child_end = True
             
@@ -351,13 +364,13 @@ class Pool(object):
                 # TODO: we should do something here.
                 pass 
 
+            logging.debug('Pool.read_life_signal: close %d', fd)
             os.close(fd)
             assert pid == child_proc.get_pid()
-            print 'child %d exit' % (pid),
             if os.WIFEXITED(exit_status) and os.WEXITSTATUS(exit_status) == 0:
-                print 'normally'
+                logging.info('child %d exit normally', pid)
             else:
-                print 'abnormally'
+                logging.info('child %d exit abnormally', pid)
         
             self.__finished_children_num += 1
             if self.__finished_children_num == len(self.__children):
@@ -377,12 +390,9 @@ class Pool(object):
                 fd_buf.set_content(line)
                 child_proc.assigned_task_num += 1
             else:
-                try:
-                    ev_loop.del_event(fd)
-                    os.close(fd)
-                except:
-                    import pdb
-                    pdb.set_trace()
+                ev_loop.del_event(fd)
+                logging.debug('Pool.write_child_pipe: close %d', fd)
+                os.close(fd)
                 
         while not fd_buf.empty():
             try:
@@ -391,6 +401,7 @@ class Pool(object):
             except OSError, e:
                 if e.errno == errno.EPIPE: # child has closed the pipe
                     ev_loop.del_event(fd)
+                    logging.debug('Pool.write_child_pipe: close %d with EPIPE', fd)
                     os.close(fd)
                 elif e.errno in [errno.EAGAIN, errno.EWOULDBLOCK]:
                     return
