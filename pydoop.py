@@ -12,7 +12,9 @@ import fcntl
 from functools import partial
 import errno
 import operator
+import signal
 import logging
+import time
 try:
     from importlib import import_module as import_mod
 except:
@@ -337,7 +339,21 @@ class Pool(object):
         except KeyboardInterrupt:
             print 'User requests exit.'
             # TODO: we should kill all children here.
-        
+            for child_proc in self.__children:
+                try:
+                    pid, _ = child_proc.join(os.WNOHANG)
+                    if pid == 0:
+                        child_proc.kill(signal.SIGTERM)
+                except OSError:
+                    continue
+            
+            time.sleep(1)
+            for child_proc in self.__children:
+                try:
+                    child_proc.join(os.WNOHANG)
+                except OSError:
+                    continue
+
         return reduce(operator.add, 
                       [p.finished_task_num for p in self.__children], 0)
 
