@@ -261,6 +261,15 @@ class Process(object):
             return
         
         return os.waitpid(self.__pid, options)
+    
+    def kill(self, signal):
+        if self.__pid == -1:
+            return
+        
+        try:
+            os.kill(self.__pid, signal)
+        except:
+            return
 
 class Pool(object):
     
@@ -343,10 +352,12 @@ class Pool(object):
             else:
                 is_child_end = True
         except OSError, e:
-            if e.errno not in [errno.EAGAIN, errno.EWOULDBLOCK]:
-                is_child_end = True
+            if e.errno in [errno.EAGAIN, errno.EWOULDBLOCK]:
+                logging.debug('Pool.read_life_signal: read error %d', e.errno)
+                return
             else:
                 assert False, 'unexpected errno: %d' % e.errno
+                is_child_end = True
         except:
             is_child_end = True
             
