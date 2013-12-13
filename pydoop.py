@@ -338,7 +338,7 @@ class Pool(object):
             self.__event_loop.dispatch()
         except KeyboardInterrupt:
             print 'User requests exit.'
-            # TODO: we should kill all children here.
+
             for child_proc in self.__children:
                 try:
                     pid, _ = child_proc.join(os.WNOHANG)
@@ -452,6 +452,8 @@ def main(argv=None):
         parser.add_option("-f", "--func", dest="func",
                           default="main",
                           help="entry function in the JOBFILE, default to main")
+        parser.add_option("-a", "--args", dest="args",
+                          help="additional arguments passed to the entry func")
     except Exception, e:
         indent = len(program_name) * " "
         sys.stderr.write(program_name + ": " + repr(e) + "\n")
@@ -464,6 +466,10 @@ def main(argv=None):
         parser.error('Please input JOBFILE and INFILE')
     
     worker_num = opts.worker_num
+    func_args = opts.args or []
+    if func_args:
+        func_args = func_args.split(',')
+
     job_file = args[0]
     in_file = args[1]
     
@@ -473,6 +479,11 @@ def main(argv=None):
         child_entry_func = import_func(job_file, opts.func)
         if child_entry_func is None:
             parser.error('Cannot import function ' + opts.func)
+    
+    if func_args:
+        work_func = child_entry_func
+        child_entry_func = \
+            lambda *args, **kwargs: work_func(*(args + func_args), **kwargs)
 
     try:
         infd = open(in_file)
