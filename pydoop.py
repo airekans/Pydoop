@@ -9,7 +9,6 @@ import os
 from optparse import OptionParser
 import select
 import fcntl
-from functools import partial
 import errno
 import operator
 import signal
@@ -19,6 +18,12 @@ try:
     from importlib import import_module as import_mod
 except:
     import_mod = __import__
+
+try:
+    from functools import partial
+except: # functools is introduced in 2.5, so we have to define a partial for 2.4
+    def partial(func, *args):
+        return lambda *as, **kws: func(*(args + as), **kws)
 
 logging.basicConfig(level=logging.DEBUG)
 
