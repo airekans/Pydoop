@@ -483,7 +483,7 @@ def main(argv=None):
     if func_args:
         work_func = child_entry_func
         child_entry_func = \
-            lambda *args, **kwargs: work_func(*(args + func_args), **kwargs)
+            lambda *args, **kwargs: work_func(*(list(args) + func_args), **kwargs)
 
     try:
         infd = open(in_file)
