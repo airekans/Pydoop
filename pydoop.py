@@ -23,7 +23,7 @@ try:
     from functools import partial
 except: # functools is introduced in 2.5, so we have to define a partial for 2.4
     def partial(func, *args):
-        return lambda *as, **kws: func(*(args + as), **kws)
+        return lambda *more_args, **kws: func(*(args + more_args), **kws)
 
 logging.basicConfig(level=logging.DEBUG)
 
