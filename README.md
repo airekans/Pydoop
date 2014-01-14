@@ -57,7 +57,7 @@ def download(url):
     fd.close()
 
 if __name__ == '__main__':
-    pool = Pool(4) # there will be 4 worker processes in the pool
+    pool = pydoop.Pool(4) # there will be 4 worker processes in the pool
     in_fd = open('urls.txt') # open the input file
     
     pool.run(download, in_fd) # pool will run your download function concurrently.
