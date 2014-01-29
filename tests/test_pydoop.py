@@ -2,6 +2,8 @@ import unittest
 import pydoop
 import os
 import errno
+import tempfile
+import shutil
 from functools import partial
 
 
@@ -28,7 +30,7 @@ class Test(unittest.TestCase):
 
 
     def testEpollloopAddEvent(self):
-        rfd, wfd = os.pipe()
+        rfd, _ = os.pipe()
         pydoop.set_nonblocking(rfd)
         on_read = lambda fd, ev, ev_loop: None
         self.__epoll_loop.add_event(rfd, pydoop.EventLoop.EV_IN, on_read)
@@ -92,7 +94,7 @@ class Test(unittest.TestCase):
 
 
     def testSelectloopAddEvent(self):
-        rfd, wfd = os.pipe()
+        rfd, _ = os.pipe()
         pydoop.set_nonblocking(rfd)
         on_read = lambda fd, ev_loop: None
         self.__select_loop.add_event(rfd, pydoop.EventLoop.EV_IN, on_read)
@@ -215,9 +217,43 @@ def testPoolRunWithForkFailure():
     assert_errno(partial(os.waitpid, 0, os.WNOHANG), errno.ECHILD)
     assert_eof(infd)
 
+def testPoolRunWithLogPrefix():
+    infd = open(os.path.join(_data_path, 'input.txt'))
+    tmp_work_dir = tempfile.mkdtemp(dir=os.getcwd())
+    assert os.path.isdir(tmp_work_dir)
+    
+    pid = os.getpid()
+
+    try:
+        pool = pydoop.Pool(4)
+        expected_lines = [l for l in infd]
+        def func(l):
+            assert os.path.isdir(tmp_work_dir)
+            assert l in expected_lines
+            print l
+    
+        infd = open(os.path.join(_data_path, 'input.txt'))
+        file_prefix = 'test_child_'
+        log_file_prefix = os.path.join(tmp_work_dir, file_prefix)
+
+        actual = pool.run(func, infd, log_file_prefix)
+        assert len(expected_lines) == actual, '%d != %d' % (len(expected_lines), actual)
+        assert_eof(infd)
+        
+        # assert the log file is created.
+        log_file_count = 0
+        for f in os.listdir(tmp_work_dir):
+            if f.startswith(file_prefix):
+                log_file_count += 1
+        assert log_file_count == 4
+    finally:
+        if pid == os.getpid():
+            shutil.rmtree(tmp_work_dir)
+
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']
     testPoolRun()
+    testPoolRunWithLogPrefix()
     testPoolRunWithWorkerFailure()
     testPoolRunWithForkFailure()
     unittest.main()

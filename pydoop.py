@@ -272,7 +272,7 @@ class Process(object):
                     logging.debug('redirect stdout and stderr to ' + 
                                   log_filename)
                 else:
-                    logging.warning('failed to redirect stdout/err to' +
+                    logging.warning('failed to redirect stdout/err to ' +
                                     log_filename)
                 
             try:
