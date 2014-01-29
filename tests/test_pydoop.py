@@ -222,8 +222,6 @@ def testPoolRunWithLogPrefix():
     tmp_work_dir = tempfile.mkdtemp(dir=os.getcwd())
     assert os.path.isdir(tmp_work_dir)
     
-    pid = os.getpid()
-
     try:
         pool = pydoop.Pool(4)
         expected_lines = [l for l in infd]
@@ -247,8 +245,7 @@ def testPoolRunWithLogPrefix():
                 log_file_count += 1
         assert log_file_count == 4
     finally:
-        if pid == os.getpid():
-            shutil.rmtree(tmp_work_dir)
+        shutil.rmtree(tmp_work_dir)
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']
