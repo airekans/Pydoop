@@ -280,9 +280,9 @@ class Process(object):
             except:
                 import traceback
                 traceback.print_exc()
-                sys.exit(1)
+                os._exit(1)
                 
-            sys.exit(ret)
+            os._exit(ret)
         else: # parent
             logging.debug('Process.run: parent close %d %d', data_rfd, life_wfd)
             os.close(data_rfd)
