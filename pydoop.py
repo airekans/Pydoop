@@ -214,9 +214,10 @@ def close_all_fds(fds):
 
 class Process(object):
     
-    def __init__(self, func):
+    def __init__(self, func, log_file_prefix=None):
         self.__func = func
         self.__pid = -1
+        self.__log_file_prefix = log_file_prefix
     
     def __close_fd(self, fd):
         try:
@@ -224,6 +225,22 @@ class Process(object):
             os.close(fd)
         except:
             pass
+    
+    def __redirect_output(self, filename):
+        try:
+            out_file = open(filename, 'a+b')
+        except IOError:
+            return False
+        
+        try:
+            out_fd = out_file.fileno()
+            os.dup2(out_fd, 1)
+            os.dup2(out_fd, 2)
+            return True
+        except (IOError, OSError):
+            return False
+        finally:
+            out_file.close()
         
     def get_pid(self):
         return self.__pid
@@ -247,6 +264,16 @@ class Process(object):
             self.__close_fd(life_rfd)
             for fd in close_fds:
                 self.__close_fd(fd)
+            
+            if self.__log_file_prefix:
+                real_pid = os.getpid()
+                log_filename = self.__log_file_prefix + str(real_pid)
+                if self.__redirect_output(log_filename):
+                    logging.debug('redirect stdout and stderr to ' + 
+                                  log_filename)
+                else:
+                    logging.warning('failed to redirect stdout/err to' +
+                                    log_filename)
                 
             try:
                 ret = self.__func(data_rfd, life_wfd)
@@ -301,7 +328,7 @@ class Pool(object):
     
         return 0
     
-    def run(self, proc_func, infd):
+    def run(self, proc_func, infd, log_file_prefix=None):
         self.__finished_children_num = 0
         self.__event_loop = _EventLoop()
         self.__infd = infd
@@ -310,7 +337,8 @@ class Pool(object):
         close_fds = []
 
         for _i in xrange(self.__worker_num):
-            child_proc = Process(partial(Pool.__child_main, proc_func))
+            child_proc = Process(partial(Pool.__child_main, proc_func),
+                                 log_file_prefix)
             pid, data_wfd, life_rfd = \
                 child_proc.start([fd for fd in close_fds])
                 
@@ -450,8 +478,8 @@ def main(argv=None):
     try:
         # setup option parser
         parser = OptionParser(usage = "%prog [options] JOBFILE INFILE")
-        parser.add_option("-o", "--out", dest="outfile",
-                          help="set output path", metavar="FILE")
+        parser.add_option("-l", "--log-prefix", dest="log_prefix",
+                          help="the log file prefix workers used to log")
         parser.add_option("-w", "--worker-num", dest="worker_num",
                           help="number of workers", metavar="NUM",
                           type="int", default=4)
@@ -472,6 +500,7 @@ def main(argv=None):
         parser.error('Please input JOBFILE and INFILE')
     
     worker_num = opts.worker_num
+    log_prefix = opts.log_prefix
     func_args = opts.args or []
     if func_args:
         func_args = func_args.split(',')
@@ -497,7 +526,7 @@ def main(argv=None):
         parser.error('Cannot open input file ' + in_file)
     
     pool = Pool(worker_num)
-    pool.run(child_entry_func, infd)
+    pool.run(child_entry_func, infd, log_prefix)
 
 if __name__ == "__main__":
     sys.exit(main())
