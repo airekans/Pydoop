@@ -421,8 +421,12 @@ class Pool(object):
             
             if child_proc.finished_task_num < child_proc.assigned_task_num:
                 # It means the child has exited too soon.
-                # TODO: we should do something here.
-                pass
+                # TODO: we may fork another child again.
+                logging.warning(('child %d has exited prematurely. ' +
+                                'assigned: %d finished: %d') %
+                                    (child_proc.get_pid(),
+                                     child_proc.assigned_task_num,
+                                     child_proc.finished_task_num))
 
             logging.debug('Pool.read_life_signal: close %d', fd)
             ev_loop.del_event(fd)
