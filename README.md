@@ -1,7 +1,8 @@
 Pydoop
 ======
 
-[![Build Status](https://travis-ci.org/airekans/Pydoop.png?branch=master)](https://travis-ci.org/airekans/Pydoop)
+[![Build Status](https://travis-ci.org/airekans/Pydoop.png?branch=master)](https://travis-ci.org/airekans/Pydoop) 
+[![status](https://sourcegraph.com/api/repos/github.com/airekans/Pydoop/badges/status.png)](https://sourcegraph.com/github.com/airekans/Pydoop)
 
 A python concurrent job execution library.
 
