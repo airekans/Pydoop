@@ -312,12 +312,23 @@ def _alarm_handler(signum, frame):
 
 class Pool(object):
     
-    def __init__(self, worker_num=4):
+    TIMEOUT_FLAG = 't'
+    FINISH_FLAG = '2'
+    
+    def __init__(self, worker_num=4, timeout=0):
         self.__worker_num = worker_num
-        
+        try:
+            self.__timeout = int(timeout)
+            if self.__timeout < 0:
+                self.__timeout = 0
+        except:
+            self.__timeout = 0
+
     @staticmethod
-    def __child_main(work_func, data_rfd, life_wfd):
-        signal.signal(signal.SIGALRM, _alarm_handler)
+    def __child_main(work_func, timeout, data_rfd, life_wfd):
+        if timeout > 0:
+            signal.signal(signal.SIGALRM, _alarm_handler)
+        
         rpipe = os.fdopen(data_rfd, 'r')
         wpipe = os.fdopen(life_wfd, 'w')
         try:
@@ -325,17 +336,22 @@ class Pool(object):
             while line:
                 is_timeout = False
                 try:
-                    signal.alarm(10)
+                    if timeout > 0:
+                        signal.alarm(timeout)
                     work_func(line)
                 except _TimeoutException:
                     is_timeout = True
                 finally:
-                    signal.alarm(0)
+                    if timeout > 0:
+                        signal.alarm(0)
                 
                 if is_timeout:
-                    wpipe.write('t')
+                    wpipe.write(Pool.TIMEOUT_FLAG)
+                    msg = 'Pool.__child_main: timeout elem: %s' % \
+                        line
+                    logging.warning(msg)
                 else:
-                    wpipe.write('2')
+                    wpipe.write(Pool.FINISH_FLAG)
                 line = rpipe.readline()
         finally:
             logging.debug('Pool.__child_main: exit and close %d %d', 
@@ -354,7 +370,8 @@ class Pool(object):
         close_fds = []
 
         for _i in xrange(self.__worker_num):
-            child_proc = Process(partial(Pool.__child_main, proc_func),
+            child_proc = Process(partial(Pool.__child_main, proc_func,
+                                         self.__timeout),
                                  log_file_prefix)
             pid, data_wfd, life_rfd = \
                 child_proc.start([fd for fd in close_fds])
@@ -414,7 +431,10 @@ class Pool(object):
         try:
             c = os.read(fd, 1)
             if len(c) > 0:
-                child_proc.finished_task_num += 1
+                if c == Pool.FINISH_FLAG:
+                    child_proc.finished_task_num += 1
+                elif c == Pool.TIMEOUT_FLAG:
+                    pass
             else:
                 is_child_end = True
         except OSError, e:
