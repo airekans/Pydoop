@@ -48,7 +48,6 @@ def import_func(mod_file, func_name):
     
     return entry_func
 
-
 class _StopDispatch(Exception):
     pass
 
@@ -305,6 +304,12 @@ class Process(object):
         except:
             return
 
+class _TimeoutException(Exception):
+    pass
+
+def _alarm_handler(signum, frame):
+    raise _TimeoutException()
+
 class Pool(object):
     
     def __init__(self, worker_num=4):
@@ -312,13 +317,25 @@ class Pool(object):
         
     @staticmethod
     def __child_main(work_func, data_rfd, life_wfd):
+        signal.signal(signal.SIGALRM, _alarm_handler)
         rpipe = os.fdopen(data_rfd, 'r')
         wpipe = os.fdopen(life_wfd, 'w')
         try:
             line = rpipe.readline()
             while line:
-                work_func(line)
-                wpipe.write('2')
+                is_timeout = False
+                try:
+                    signal.alarm(10)
+                    work_func(line)
+                except _TimeoutException:
+                    is_timeout = True
+                finally:
+                    signal.alarm(0)
+                
+                if is_timeout:
+                    wpipe.write('t')
+                else:
+                    wpipe.write('2')
                 line = rpipe.readline()
         finally:
             logging.debug('Pool.__child_main: exit and close %d %d', 
