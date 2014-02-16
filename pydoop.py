@@ -314,6 +314,7 @@ class Pool(object):
     
     TIMEOUT_FLAG = 't'
     FINISH_FLAG = '2'
+    FAILED_FLAG = 'f'
     
     def __init__(self, worker_num=4, timeout=0):
         self.__worker_num = worker_num
@@ -331,29 +332,42 @@ class Pool(object):
             def loop(rp, wp):
                 line = rp.readline()
                 while line:
-                    is_timeout = False
+                    task_result = Pool.FINISH_FLAG
                     try:
                         signal.alarm(timeout)
                         work_func(line)
                     except _TimeoutException:
-                        is_timeout = True
+                        task_result = Pool.TIMEOUT_FLAG
+                    except:
+                        task_result = Pool.FAILED_FLAG
                     finally:
                         signal.alarm(0)
                     
-                    if is_timeout:
-                        wp.write(Pool.TIMEOUT_FLAG)
-                        msg = 'Pool.__child_main: timeout elem: %s' % \
-                            line
+                    wp.write(task_result)
+                    if task_result != Pool.FINISH_FLAG:
+                        msg = 'Pool.__child_main: elem: %s flag: %s' % \
+                            (line, task_result)
                         logging.warning(msg)
-                    else:
-                        wp.write(Pool.FINISH_FLAG)
+                        
                     line = rp.readline()
         else:
             def loop(rp, wp):
                 line = rp.readline()
                 while line:
-                    work_func(line)
-                    wp.write(Pool.FINISH_FLAG)
+                    task_finished = True
+                    try:
+                        work_func(line)
+                    except:
+                        task_finished = False
+                    
+                    if task_finished:
+                        wp.write(Pool.FINISH_FLAG)
+                    else:
+                        wp.write(Pool.FAILED_FLAG)
+                        msg = 'Pool.__child_main: failed elem: %s' % \
+                            line
+                        logging.warning(msg)
+
                     line = rp.readline()
         
         rpipe = os.fdopen(data_rfd, 'r')
