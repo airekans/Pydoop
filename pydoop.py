@@ -295,12 +295,12 @@ class Process(object):
         
         return os.waitpid(self.__pid, options)
     
-    def kill(self, signal):
+    def kill(self, signum):
         if self.__pid == -1:
             return
         
         try:
-            os.kill(self.__pid, signal)
+            os.kill(self.__pid, signum)
         except:
             return
 
@@ -328,31 +328,38 @@ class Pool(object):
     def __child_main(work_func, timeout, data_rfd, life_wfd):
         if timeout > 0:
             signal.signal(signal.SIGALRM, _alarm_handler)
+            def loop(rp, wp):
+                line = rp.readline()
+                while line:
+                    is_timeout = False
+                    try:
+                        signal.alarm(timeout)
+                        work_func(line)
+                    except _TimeoutException:
+                        is_timeout = True
+                    finally:
+                        signal.alarm(0)
+                    
+                    if is_timeout:
+                        wp.write(Pool.TIMEOUT_FLAG)
+                        msg = 'Pool.__child_main: timeout elem: %s' % \
+                            line
+                        logging.warning(msg)
+                    else:
+                        wp.write(Pool.FINISH_FLAG)
+                    line = rp.readline()
+        else:
+            def loop(rp, wp):
+                line = rp.readline()
+                while line:
+                    work_func(line)
+                    wp.write(Pool.FINISH_FLAG)
+                    line = rp.readline()
         
         rpipe = os.fdopen(data_rfd, 'r')
         wpipe = os.fdopen(life_wfd, 'w')
         try:
-            line = rpipe.readline()
-            while line:
-                is_timeout = False
-                try:
-                    if timeout > 0:
-                        signal.alarm(timeout)
-                    work_func(line)
-                except _TimeoutException:
-                    is_timeout = True
-                finally:
-                    if timeout > 0:
-                        signal.alarm(0)
-                
-                if is_timeout:
-                    wpipe.write(Pool.TIMEOUT_FLAG)
-                    msg = 'Pool.__child_main: timeout elem: %s' % \
-                        line
-                    logging.warning(msg)
-                else:
-                    wpipe.write(Pool.FINISH_FLAG)
-                line = rpipe.readline()
+            loop(rpipe, wpipe)
         finally:
             logging.debug('Pool.__child_main: exit and close %d %d', 
                           wpipe.fileno(), rpipe.fileno())
