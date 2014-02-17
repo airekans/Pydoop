@@ -4,6 +4,7 @@ import os
 import errno
 import tempfile
 import shutil
+import time
 from functools import partial
 
 
@@ -12,8 +13,8 @@ class Test(unittest.TestCase):
     def setUp(self):
         self.__epoll_loop = pydoop.EpollLoop()
         self.__select_loop = pydoop.SelectLoop()
-        cur_dir = os.path.dirname(__file__)
-        self._data_path = os.path.join(cur_dir, 'test_data')
+        _cur_dir = os.path.dirname(__file__)
+        self._data_path = os.path.join(_cur_dir, 'test_data')
  
     def tearDown(self):
         pass
@@ -247,11 +248,28 @@ def testPoolRunWithLogPrefix():
     finally:
         shutil.rmtree(tmp_work_dir)
 
+def testPoolRunWithTimeout():
+    pool = pydoop.Pool(4, timeout=1)
+    infd = open(os.path.join(_data_path, 'input.txt'))
+    expected_lines = [l for l in infd]
+    def func(l):
+        assert l in expected_lines
+        if int(l.strip()[-1]) % 2 == 0:
+            time.sleep(2)
+
+    infd = open(os.path.join(_data_path, 'input.txt'))
+    actual = pool.run(func, infd)
+    assert len(expected_lines) / 2 == actual, actual
+    assert_errno(partial(os.waitpid, 0, os.WNOHANG), errno.ECHILD)
+    assert_eof(infd)
+    
+    
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']
     testPoolRun()
     testPoolRunWithLogPrefix()
     testPoolRunWithWorkerFailure()
     testPoolRunWithForkFailure()
+    testPoolRunWithTimeout()
     unittest.main()
 
