@@ -310,10 +310,25 @@ class _TimeoutException(Exception):
 def _alarm_handler(signum, frame):
     raise _TimeoutException()
 
+class _WorkerProcess(Process):
+    
+    def __init__(self, *args, **kwargs):
+        Process.__init__(self, *args, **kwargs)
+        
+        self.assigned_task_num = 0
+        self.success_task_num = 0
+        self.timeout_task_num = 0
+        self.failed_task_num = 0
+    
+    def get_finished_task_num(self):
+        return self.success_task_num + self.failed_task_num + \
+            self.timeout_task_num
+
+
 class Pool(object):
     
     TIMEOUT_FLAG = 't'
-    FINISH_FLAG = '2'
+    SUCCESS_FLAG = '2'
     FAILED_FLAG = 'f'
     
     def __init__(self, worker_num=4, timeout=0):
@@ -332,7 +347,7 @@ class Pool(object):
             def loop(rp, wp):
                 line = rp.readline()
                 while line:
-                    task_result = Pool.FINISH_FLAG
+                    task_result = Pool.SUCCESS_FLAG
                     try:
                         signal.alarm(timeout)
                         work_func(line)
@@ -344,7 +359,7 @@ class Pool(object):
                         signal.alarm(0)
                     
                     wp.write(task_result)
-                    if task_result != Pool.FINISH_FLAG:
+                    if task_result != Pool.SUCCESS_FLAG:
                         msg = 'Pool.__child_main: elem: %s flag: %s' % \
                             (line, task_result)
                         logging.warning(msg)
@@ -361,7 +376,7 @@ class Pool(object):
                         task_finished = False
                     
                     if task_finished:
-                        wp.write(Pool.FINISH_FLAG)
+                        wp.write(Pool.SUCCESS_FLAG)
                     else:
                         wp.write(Pool.FAILED_FLAG)
                         msg = 'Pool.__child_main: failed elem: %s' % \
@@ -391,9 +406,9 @@ class Pool(object):
         close_fds = []
 
         for _i in xrange(self.__worker_num):
-            child_proc = Process(partial(Pool.__child_main, proc_func,
-                                         self.__timeout),
-                                 log_file_prefix)
+            child_proc = _WorkerProcess(partial(Pool.__child_main, proc_func,
+                                                self.__timeout),
+                                        log_file_prefix)
             pid, data_wfd, life_rfd = \
                 child_proc.start([fd for fd in close_fds])
                 
@@ -411,8 +426,6 @@ class Pool(object):
                                             self.read_life_signal)
 
                 close_fds += [data_wfd, life_rfd]
-                child_proc.finished_task_num = 0
-                child_proc.assigned_task_num = 0
                 self.__fd_proc[life_rfd] = child_proc
                 
                 child_proc.wfd_buf = FdBuffer()
@@ -443,7 +456,7 @@ class Pool(object):
                     continue
 
         return reduce(operator.add, 
-                      [p.finished_task_num for p in self.__children], 0)
+                      [p.success_task_num for p in self.__children], 0)
 
     def read_life_signal(self, fd, _, ev_loop):
         child_proc = self.__fd_proc[fd]
@@ -452,10 +465,12 @@ class Pool(object):
         try:
             c = os.read(fd, 1)
             if len(c) > 0:
-                if c == Pool.FINISH_FLAG:
-                    child_proc.finished_task_num += 1
+                if c == Pool.SUCCESS_FLAG:
+                    child_proc.success_task_num += 1
                 elif c == Pool.TIMEOUT_FLAG:
-                    pass
+                    child_proc.timeout_task_num += 1
+                elif c == Pool.FAILED_FLAG:
+                    child_proc.failed_task_num += 1
             else:
                 is_child_end = True
         except OSError, e:
@@ -477,14 +492,15 @@ class Pool(object):
             if pid == 0: # not exit yet
                 return
             
-            if child_proc.finished_task_num < child_proc.assigned_task_num:
+            finished_task_num = child_proc.get_finished_task_num()
+            if finished_task_num < child_proc.assigned_task_num:
                 # It means the child has exited too soon.
                 # TODO: we may fork another child again.
                 logging.warning(('child %d has exited prematurely. ' +
                                 'assigned: %d finished: %d') %
                                     (child_proc.get_pid(),
                                      child_proc.assigned_task_num,
-                                     child_proc.finished_task_num))
+                                     finished_task_num))
 
             logging.debug('Pool.read_life_signal: close %d', fd)
             ev_loop.del_event(fd)
