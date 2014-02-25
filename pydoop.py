@@ -423,7 +423,7 @@ class Pool(object):
                 self.__event_loop.add_event(data_wfd, EventLoop.EV_OUT, 
                                             self.write_child_pipe)
                 self.__event_loop.add_event(life_rfd, EventLoop.EV_IN,
-                                            self.read_life_signal)
+                                            self.read_task_report)
 
                 close_fds += [data_wfd, life_rfd]
                 self.__fd_proc[life_rfd] = child_proc
@@ -458,7 +458,7 @@ class Pool(object):
         return reduce(operator.add, 
                       [p.success_task_num for p in self.__children], 0)
 
-    def read_life_signal(self, fd, _, ev_loop):
+    def read_task_report(self, fd, _, ev_loop):
         child_proc = self.__fd_proc[fd]
         is_child_end = False
 
@@ -475,7 +475,7 @@ class Pool(object):
                 is_child_end = True
         except OSError, e:
             if e.errno in [errno.EAGAIN, errno.EWOULDBLOCK]:
-                logging.debug('Pool.read_life_signal: read error %d', e.errno)
+                logging.debug('Pool.read_task_report: read error %d', e.errno)
                 return
             else:
                 assert False, 'unexpected errno: %d' % e.errno
@@ -502,7 +502,7 @@ class Pool(object):
                                      child_proc.assigned_task_num,
                                      finished_task_num))
 
-            logging.debug('Pool.read_life_signal: close %d', fd)
+            logging.debug('Pool.read_task_report: close %d', fd)
             ev_loop.del_event(fd)
             os.close(fd)
             assert pid == child_proc.get_pid()
