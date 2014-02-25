@@ -397,10 +397,16 @@ class Pool(object):
     
         return 0
     
-    def run(self, proc_func, infd, log_file_prefix=None):
+    def run(self, proc_func, elems, log_file_prefix=None):
         self.__finished_children_num = 0
         self.__event_loop = _EventLoop()
-        self.__infd = infd
+        self.__total_task_num = -1
+        if not hasattr(elems, 'next'):
+            # assume it's a container implementing __iter__ method
+            self.__elems = iter(elems)
+            self.__total_task_num = len(elems)
+        else:
+            self.__elems = elems
         self.__fd_proc = {}
         self.__children = []
         close_fds = []
@@ -471,6 +477,8 @@ class Pool(object):
                     child_proc.timeout_task_num += 1
                 elif c == Pool.FAILED_FLAG:
                     child_proc.failed_task_num += 1
+                else: # if recv something else, consider it failed
+                    child_proc.failed_task_num += 1
             else:
                 is_child_end = True
         except OSError, e:
@@ -521,8 +529,8 @@ class Pool(object):
         
         if fd_buf.empty():
             try:
-                line = self.__infd.readline()
-            except ValueError:
+                line = self.__elems.next()
+            except StopIteration:
                 line = None
     
             if line:
