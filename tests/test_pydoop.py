@@ -263,6 +263,17 @@ def testPoolRunWithTimeout():
     assert_errno(partial(os.waitpid, 0, os.WNOHANG), errno.ECHILD)
     assert_eof(infd)
     
+def testPoolRunWithList():
+    pool = pydoop.Pool(4)
+    expected_list = range(20)
+    def func(l):
+        assert isinstance(l, str)
+        l = int(l)
+        assert l in expected_list
+
+    actual = pool.run(func, expected_list)
+    assert len(expected_list) == actual, actual
+    
     
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']
@@ -271,5 +282,6 @@ if __name__ == "__main__":
     testPoolRunWithWorkerFailure()
     testPoolRunWithForkFailure()
     testPoolRunWithTimeout()
+    testPoolRunWithList()
     unittest.main()
 

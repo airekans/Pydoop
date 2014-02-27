@@ -529,12 +529,14 @@ class Pool(object):
         
         if fd_buf.empty():
             try:
-                line = self.__elems.next()
+                elem = self.__elems.next()
             except StopIteration:
-                line = None
+                elem = None
     
-            if line:
-                fd_buf.set_content(line)
+            if elem is not None:
+                if not isinstance(elem, str):
+                    elem = str(elem) + '\n'
+                fd_buf.set_content(elem)
                 child_proc.assigned_task_num += 1
             else:
                 ev_loop.del_event(fd)
