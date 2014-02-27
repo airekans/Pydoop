@@ -274,6 +274,17 @@ def testPoolRunWithList():
     actual = pool.run(func, expected_list)
     assert len(expected_list) == actual, actual
     
+def testPoolRunWithIter():
+    pool = pydoop.Pool(4)
+    expected_list = range(20)
+    def func(l):
+        assert isinstance(l, str)
+        l = int(l)
+        assert l in expected_list
+
+    actual = pool.run(func, iter(expected_list))
+    assert len(expected_list) == actual, actual
+    
     
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']
@@ -283,5 +294,6 @@ if __name__ == "__main__":
     testPoolRunWithForkFailure()
     testPoolRunWithTimeout()
     testPoolRunWithList()
+    testPoolRunWithIter()
     unittest.main()
 
