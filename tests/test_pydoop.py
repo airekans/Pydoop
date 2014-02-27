@@ -284,6 +284,22 @@ def testPoolRunWithIter():
 
     actual = pool.run(func, iter(expected_list))
     assert len(expected_list) == actual, actual
+
+
+def testPoolRunWithLargeList():
+    ''' This test is for profiling the performance 
+    of the event loop.
+    '''
+    pool = pydoop.Pool(4)
+    expected_list = range(500000)
+    def func(l):
+        assert isinstance(l, str)
+
+    begin_time = time.time()
+    actual = pool.run(func, iter(expected_list))
+    end_time = time.time()
+    assert len(expected_list) == actual, actual
+    assert end_time - begin_time < 24 # should be less than 24s
     
     
 if __name__ == "__main__":
@@ -295,5 +311,6 @@ if __name__ == "__main__":
     testPoolRunWithTimeout()
     testPoolRunWithList()
     testPoolRunWithIter()
+    #testPoolRunWithLargeList()
     unittest.main()
 
